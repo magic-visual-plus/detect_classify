@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import dinov3
 
-
 class DinoV3Classifier(nn.Module):
     def __init__(self, backbone_name, backbone_weights, num_classes, head_embed_dim=100, freeze_backbone=True):
         super().__init__()
@@ -41,7 +40,4 @@ class DinoV3Classifier(nn.Module):
         return logits
 
 
-class ResNetClassifier(nn.Module):
-    def __init__(self, backbone_name, num_classes, freeze_backbone=True):
-        super().__init__()
         

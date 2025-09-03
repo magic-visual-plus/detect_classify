@@ -2,24 +2,12 @@ import sys
 import torch
 import torch.nn as nn
 import lightning as L
-from torchvision import transforms, datasets
 from model import DinoV3Classifier
 from torchmetrics.classification import Accuracy, Precision, Recall
+import utils
+import utils.dataloader
+import utils.transforms
 
-DEFAULT_TRANSFORM = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Resize((32, 32)),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
-
-TRAIN_TRANSFORM = transforms.Compose([
-    transforms.RandomHorizontalFlip(),  # 水平翻转
-    transforms.RandomVerticalFlip(),  # 垂直翻转
-    # transforms.RandomRotation(10),      # 随机旋转
-    # transforms.RandomCrop(32, padding=4),  # 随机裁剪
-    # transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),  # 颜色抖动
-    DEFAULT_TRANSFORM
-])
 
 class DinoV3ClassifierTrainer(L.LightningModule):
     def __init__(self, model, config):
@@ -113,21 +101,26 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         }
     
 class ClassificationData(L.LightningDataModule):
-    def __init__(self, batch_size=256, num_workers=5, train_transform=TRAIN_TRANSFORM, val_transform=DEFAULT_TRANSFORM, dataset_path="."):
+    def __init__(
+            self, 
+            train_dataloader,
+            val_dataloader,
+            batch_size=256, 
+            num_workers=5,
+            dataset_path="."):
         super().__init__()
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.train_transform = train_transform
-        self.val_transform = val_transform
+        self._train_dataloader = train_dataloader
+        self._val_dataloader = val_dataloader
         self.dataset_path = dataset_path
 
     def train_dataloader(self):
-        train_dataset = datasets.CIFAR100(root=self.dataset_path, train=True, download=True, transform=self.train_transform)
-        return torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers)
+        return self._train_dataloader
     
     def val_dataloader(self):
-        val_dataset = datasets.CIFAR100(root=self.dataset_path, train=False, download=True, transform=self.val_transform)
-        return torch.utils.data.DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)
+        return self._val_dataloader
+    
 
 if __name__ == "__main__":
     config = {
@@ -136,15 +129,33 @@ if __name__ == "__main__":
         "batch_size": 256, 
         "num_workers": 12,
         "num_classes": 100,
-        "dataset_path": "/root/autodl-tmp/data/cifar100",
-        "train_transform": TRAIN_TRANSFORM,
-        "val_transform": DEFAULT_TRANSFORM,
+        "dataset":
+         {
+             "train_path": "/root/autodl-tmp/seat_dataset/chengdu_customer",
+             "val_path": "/root/autodl-tmp/seat_dataset/chengdu_",
+             "train_ann": "/root/autodl-tmp/data/cifar100",
+             "val_ann": "/root/autodl-tmp/data/cifar100",
+         },
+         'min_bbox_area': 400,
+
     }
     backbone_weights = sys.argv[1]
     name_split_len = 2 if 'vit' in backbone_weights else 3
     backbone_name = "_".join(backbone_weights.split("/")[-1].split("_")[:name_split_len])
     print(f"backbone name: {backbone_name}")
     print(f"backbone weights: {backbone_weights}")
+
+    train_dataloader, val_dataloader = utils.dataloader.create_train_val_dataloaders(
+        train_root=config['dataset']['train_path'],
+        train_ann=config['dataset']['train_ann'],
+        val_root=config['dataset']['val_path'],
+        val_ann=config['dataset']['val_ann'],
+        train_transform=utils.transforms.get_default_transform(),
+        val_transform=utils.transforms.get_default_transform(is_train=False),
+        min_bbox_area=config['min_bbox_area'],
+        batch_size=config['batch_size'],
+        num_workers=config['num_workers'],
+    )
     
     dinov3_classifier = DinoV3Classifier(
         backbone_name=backbone_name,
@@ -156,7 +167,8 @@ if __name__ == "__main__":
     model = DinoV3ClassifierTrainer(dinov3_classifier, config)
     print(model.model)
     data = ClassificationData(
-        dataset_path=config["dataset_path"], 
+        train_dataloader,
+        val_dataloader,
         batch_size=config["batch_size"], 
         num_workers=config["num_workers"], 
         train_transform=config["train_transform"],
