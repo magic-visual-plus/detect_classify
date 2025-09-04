@@ -2,7 +2,7 @@ import sys
 import torch
 import torch.nn as nn
 import lightning as L
-from model import DinoV3Classifier
+from model.DINOv3 import DinoV3Classifier
 from torchmetrics.classification import Accuracy, Precision, Recall
 import utils
 import utils.dataloader
@@ -128,13 +128,13 @@ if __name__ == "__main__":
         "max_epochs": 100,
         "batch_size": 256, 
         "num_workers": 12,
-        "num_classes": 100,
+        "num_classes": 2,
         "dataset":
          {
              "train_path": "/root/autodl-tmp/seat_dataset/chengdu_customer",
-             "val_path": "/root/autodl-tmp/seat_dataset/chengdu_",
-             "train_ann": "/root/autodl-tmp/data/cifar100",
-             "val_ann": "/root/autodl-tmp/data/cifar100",
+             "val_path": "/root/autodl-tmp/seat_dataset/chengdu_valid/",
+             "train_ann": "/root/autodl-tmp/seat_dataset/chengdu_customer/_classification.coco.json",
+             "val_ann": "/root/autodl-tmp/seat_dataset/chengdu_valid/_classification.coco.json",
          },
          'min_bbox_area': 400,
 
@@ -145,7 +145,7 @@ if __name__ == "__main__":
     print(f"backbone name: {backbone_name}")
     print(f"backbone weights: {backbone_weights}")
 
-    train_dataloader, val_dataloader = utils.dataloader.create_train_val_dataloaders(
+    train_loader, train_dataset, val_loader, val_dataset = utils.dataloader.create_train_val_dataloaders(
         train_root=config['dataset']['train_path'],
         train_ann=config['dataset']['train_ann'],
         val_root=config['dataset']['val_path'],
@@ -167,8 +167,8 @@ if __name__ == "__main__":
     model = DinoV3ClassifierTrainer(dinov3_classifier, config)
     print(model.model)
     data = ClassificationData(
-        train_dataloader,
-        val_dataloader,
+        train_loader,
+        val_loader,
         batch_size=config["batch_size"], 
         num_workers=config["num_workers"], 
         train_transform=config["train_transform"],

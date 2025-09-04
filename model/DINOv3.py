@@ -17,7 +17,8 @@ class DinoV3Classifier(nn.Module):
             self.freeze_backbone()
         
     def load_backbone(self, backbone_name, weights):
-        REPO_DIR = os.path.dirname(os.path.dirname(dinov3.__file__))
+        # REPO_DIR = os.path.dirname(os.path.dirname(dinov3.__file__))
+        REPO_DIR = "/root/detect_classify/dinov3"
         backbone = torch.hub.load(REPO_DIR, backbone_name, source="local", weights=weights)
         return backbone
     

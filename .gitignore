@@ -4,6 +4,7 @@ __pycache__
 */mm_runs/*
 scripts/checkpoints/*
 output
+dinov3
 runs
 model_files
 .ipynb_checkpoints

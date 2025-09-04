@@ -191,6 +191,43 @@ def correct_predicted_categories(coco_data, iou_threshold=0.5):
                 pred["category_id"] = matched_gt["category_id"]
     return coco_data
 
+def merge_coco_categories(coco_data, merge_dict):
+    """
+    合并COCO标签类别。
+
+    参数:
+        coco_data: COCO格式的字典数据
+        merge_dict: dict，key为合并后的新类别名，value为要合并的原类别名列表
+
+    返回:
+        合并后的coco_data
+    """
+    name2id = {cat['name']: cat['id'] for cat in coco_data['categories']}
+    new_categories = []
+    new_name2id = {}
+    for idx, (new_name, old_names) in enumerate(merge_dict.items()):
+        new_categories.append({
+            "id": idx,
+            "name": new_name,
+            "supercategory": "none"
+        })
+        new_name2id[new_name] = idx
+    oldid2newid = {}
+    for new_name, old_names in merge_dict.items():
+        for old_name in old_names:
+            if old_name not in name2id:
+                print(f"warning: not find {old_name}")
+                continue
+            oldid2newid[name2id[old_name]] = new_name2id[new_name]
+    for ann in coco_data['annotations']:
+        old_id = ann['category_id']
+        if old_id in oldid2newid:
+            ann['category_id'] = oldid2newid[old_id]
+        else:
+            ann['category_id'] = -1 
+    coco_data['annotations'] = [ann for ann in coco_data['annotations'] if ann['category_id'] != -1]
+    coco_data['categories'] = new_categories
+    return coco_data
 
 if __name__ == "__main__":
     model_path = sys.argv[1]
@@ -199,9 +236,16 @@ if __name__ == "__main__":
     model = hq_dino.HQDINO(model=model_path)
     model.eval()
     model.to("cuda:0")
-    coco_output = predict_coco(coco_file, model, input_path)
-    with open("predict_coco.json", "w", encoding="utf-8") as f:
-        json.dump(coco_output, f, ensure_ascii=False, indent=2)
+    coco_output = predict_coco(coco_file, model, input_path, confidence=0.3, max_size=1536)
+    # with open("predict_coco.json", "w", encoding="utf-8") as f:
+    #     json.dump(coco_output, f, ensure_ascii=False, indent=2)
     coco_output = correct_predicted_categories(coco_output)
-    with open(input_path, "_classification.coco.json", "w", encoding="utf-8") as f:
+    coco_output = merge_coco_categories(
+        coco_output,
+        merge_dict={
+            '缺陷': model.id2names.values(),
+            "背景": ["背景"]
+        }
+    )
+    with open(os.path.join(input_path, "_classification.coco.json"), "w", encoding="utf-8") as f:
         json.dump(coco_output, f, ensure_ascii=False, indent=2)
