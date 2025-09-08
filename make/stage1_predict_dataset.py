@@ -193,7 +193,7 @@ def correct_predicted_categories(coco_data, iou_threshold=0.5):
 
 def merge_coco_categories(coco_data, merge_dict):
     """
-    合并COCO标签类别。
+    合并COCO标签类别
 
     参数:
         coco_data: COCO格式的字典数据
@@ -240,12 +240,12 @@ if __name__ == "__main__":
     # with open("predict_coco.json", "w", encoding="utf-8") as f:
     #     json.dump(coco_output, f, ensure_ascii=False, indent=2)
     coco_output = correct_predicted_categories(coco_output)
-    coco_output = merge_coco_categories(
-        coco_output,
-        merge_dict={
-            '缺陷': model.id2names.values(),
-            "背景": ["背景"]
-        }
-    )
+    # coco_output = merge_coco_categories(
+    #     coco_output,
+    #     merge_dict={
+    #         '缺陷': model.id2names.values(),
+    #         "背景": ["背景"]
+    #     }
+    # )
     with open(os.path.join(input_path, "_classification.coco.json"), "w", encoding="utf-8") as f:
         json.dump(coco_output, f, ensure_ascii=False, indent=2)

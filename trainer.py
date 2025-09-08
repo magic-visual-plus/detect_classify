@@ -5,8 +5,10 @@ import lightning as L
 from model.DINOv3 import DinoV3Classifier
 from torchmetrics.classification import Accuracy, Precision, Recall
 import utils
+import utils.dataset
 import utils.dataloader
 import utils.transforms
+from config import load_config, parse_args, args_to_config_dict
 
 
 class DinoV3ClassifierTrainer(L.LightningModule):
@@ -32,7 +34,7 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         """
         training_step is called at the end of each training epoch.
         """
-        images, labels = batch
+        images, labels, info = batch
         outputs = self.model(images)
         loss = self.loss_fn(outputs, labels)
         preds = torch.argmax(outputs, dim=1)
@@ -51,7 +53,7 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         """
         validation_step is called at the end of each validation epoch.
         """
-        images, labels = batch
+        images, labels, info = batch
         outputs = self.model(images)
         loss = self.loss_fn(outputs, labels)
         preds = torch.argmax(outputs, dim=1)
@@ -106,77 +108,90 @@ class ClassificationData(L.LightningDataModule):
             train_dataloader,
             val_dataloader,
             batch_size=256, 
-            num_workers=5,
-            dataset_path="."):
+            num_workers=5):
         super().__init__()
         self.batch_size = batch_size
         self.num_workers = num_workers
         self._train_dataloader = train_dataloader
         self._val_dataloader = val_dataloader
-        self.dataset_path = dataset_path
 
     def train_dataloader(self):
         return self._train_dataloader
     
     def val_dataloader(self):
         return self._val_dataloader
-    
 
-if __name__ == "__main__":
-    config = {
-        "lr": 1e-4,
-        "max_epochs": 100,
-        "batch_size": 256, 
-        "num_workers": 12,
-        "num_classes": 2,
-        "dataset":
-         {
-             "train_path": "/root/autodl-tmp/seat_dataset/chengdu_customer",
-             "val_path": "/root/autodl-tmp/seat_dataset/chengdu_valid/",
-             "train_ann": "/root/autodl-tmp/seat_dataset/chengdu_customer/_classification.coco.json",
-             "val_ann": "/root/autodl-tmp/seat_dataset/chengdu_valid/_classification.coco.json",
-         },
-         'min_bbox_area': 400,
-
-    }
-    backbone_weights = sys.argv[1]
+def main(config_dict):
+    """
+    主训练函数
+    """
+    backbone_weights = config_dict['backbone_weights']
     name_split_len = 2 if 'vit' in backbone_weights else 3
     backbone_name = "_".join(backbone_weights.split("/")[-1].split("_")[:name_split_len])
     print(f"backbone name: {backbone_name}")
     print(f"backbone weights: {backbone_weights}")
 
+    # 对coco_file 进行前处理
+    def post_coco_file(coco_file, new_coco_file=None) -> dict:
+        coco_data = utils.dataset.load_coco_file(coco_file)
+        coco_data = utils.dataset.filter_and_remap_coco_categories(
+            coco_data, 
+            config_dict['target_category_names']
+        )
+        coco_data = utils.dataset.correct_predicted_categories(
+            coco_data, 
+            iou_threshold=config_dict['iou_threshold']
+        )
+        coco_data = utils.dataset.merge_coco_categories(
+            coco_data,
+            merge_dict=config_dict['merge_coco_dict']
+        )
+
+        if new_coco_file:
+            utils.dataset.save_coco_file(coco_data, new_coco_file)
+        return coco_data
+
+    train_coco_ann = config_dict['dataset']['train_ann'] + ".tmp"
+    valid_coco_ann = config_dict['dataset']['valid_ann'] + ".tmp"
+    train_coco_data = post_coco_file(config_dict['dataset']['train_ann'], train_coco_ann)
+    valid_coco_data = post_coco_file(config_dict['dataset']['val_ann'], valid_coco_ann)
+
+    print(train_coco_data)
+    exit()
+
+
     train_loader, train_dataset, val_loader, val_dataset = utils.dataloader.create_train_val_dataloaders(
-        train_root=config['dataset']['train_path'],
-        train_ann=config['dataset']['train_ann'],
-        val_root=config['dataset']['val_path'],
-        val_ann=config['dataset']['val_ann'],
+        train_root=config_dict['dataset']['train_path'],
+        train_ann=train_coco_ann,
+        val_root=config_dict['dataset']['val_path'],
+        val_ann=valid_coco_ann,
         train_transform=utils.transforms.get_default_transform(),
         val_transform=utils.transforms.get_default_transform(is_train=False),
-        min_bbox_area=config['min_bbox_area'],
-        batch_size=config['batch_size'],
-        num_workers=config['num_workers'],
+        min_bbox_area=config_dict['min_bbox_area'],
+        batch_size=config_dict['batch_size'],
+        num_workers=config_dict['num_workers'],
     )
-    
+    print(train_dataset.cat_names)
+    num_classes = len(train_dataset.cat_names)
+    print(f"num_classes: {num_classes}")
+    config_dict['num_classes'] = num_classes
     dinov3_classifier = DinoV3Classifier(
         backbone_name=backbone_name,
         backbone_weights=backbone_weights,
-        num_classes=config["num_classes"],
-        head_embed_dim=1000,
+        num_classes=num_classes,
         freeze_backbone=True
     )
-    model = DinoV3ClassifierTrainer(dinov3_classifier, config)
+    model = DinoV3ClassifierTrainer(dinov3_classifier, config_dict)
     print(model.model)
     data = ClassificationData(
         train_loader,
         val_loader,
-        batch_size=config["batch_size"], 
-        num_workers=config["num_workers"], 
-        train_transform=config["train_transform"],
-        val_transform=config["val_transform"]
+        batch_size=config_dict["batch_size"], 
+        num_workers=config_dict["num_workers"], 
     )
     
     trainer = L.Trainer(
-        max_epochs=config["max_epochs"], 
+        max_epochs=config_dict["max_epochs"], 
         accelerator="gpu", 
         devices=1,
         log_every_n_steps=1,     
@@ -185,3 +200,28 @@ if __name__ == "__main__":
     )
     
     trainer.fit(model, data)
+
+if __name__ == "__main__":
+    args = parse_args()
+    
+    config_manager = load_config(args.config)
+    
+    override_config = args_to_config_dict(args)
+    if override_config:
+        config_manager.merge_config(override_config)
+    
+    config_dict = config_manager.to_dict()
+    
+    print("=" * 50)
+    print("Train Config:")
+    print("=" * 50)
+    for key, value in config_dict.items():
+        if isinstance(value, dict):
+            print(f"{key}:")
+            for sub_key, sub_value in value.items():
+                print(f"  {sub_key}: {sub_value} ({type(sub_value)})")
+        else:
+            print(f"{key}: {value} ({type(value)})")
+    print("=" * 50)
+    
+    main(config_dict)
