@@ -16,6 +16,7 @@ __all__ = [
     "filter_and_remap_coco_categories",  # 筛选并重映射COCO类别
     "correct_predicted_categories",      # 修正预测框类别
     "merge_coco_categories"              # 合并COCO类别
+    "filter_coco_by_source_category"      # 筛选COCO数据
 ]
 
 
@@ -241,6 +242,45 @@ def _crop_with_edge_padding(image, left, top, target_w, target_h):
     
     return Image.fromarray(output)  
 
+def filter_coco_by_source_category(coco_data, source_values):
+    """
+    从COCO数据中筛选出annotations中source为指定值的标注和相关图片。
+
+    Args:
+        coco_data: COCO格式的字典数据
+        source_values:
+
+    Returns:
+        new_coco_data:
+    """
+
+    # 筛选标注
+    filtered_annotations = [
+        ann for ann in coco_data['annotations']
+        if 'source' in ann and ann['source'] in source_values
+    ]
+
+    # 筛选相关图片
+    used_image_ids = set(ann['image_id'] for ann in filtered_annotations)
+    filtered_images = [img for img in coco_data['images'] if img['id'] in used_image_ids]
+
+    # 保留所有类别
+    filtered_categories = copy.deepcopy(coco_data['categories'])
+
+    # 构建新的COCO数据
+    new_coco_data = {
+        "images": filtered_images,
+        "annotations": filtered_annotations,
+        "categories": filtered_categories
+    }
+    # 保留其他字段（如info、licenses等）
+    for k in coco_data:
+        if k not in new_coco_data:
+            new_coco_data[k] = copy.deepcopy(coco_data[k])
+
+    return new_coco_data
+
+
 
 def load_coco_file(coco_file) -> dict:
     with open(coco_file, 'r', encoding='utf-8') as f:
@@ -258,7 +298,7 @@ def filter_and_remap_coco_categories(coco_data, target_category_names):
         coco_data: COCO格式的字典数据
         target_category_names: 需要保留的类别名称列表
     Returns:
-        新的coco_data（深拷贝），只包含目标类别
+        coco_data
     """
     import copy
 
@@ -319,7 +359,8 @@ def correct_predicted_categories(coco_data, iou_threshold=0.5):
     Returns:
         修正后的coco_data
     """
-
+    if not isinstance(iou_threshold, float):
+        return coco_data
     # 获取当前最大类别id
     if len(coco_data['categories']) == 0:
         max_cat_id = 0
@@ -334,6 +375,24 @@ def correct_predicted_categories(coco_data, iou_threshold=0.5):
             "name": "背景",
             "supercategory": "none"
         })
+    
+    def compute_iou(box1, box2):
+        # box: [x, y, w, h]
+        x1, y1, w1, h1 = box1
+        x2, y2, w2, h2 = box2
+        xa = max(x1, x2)
+        ya = max(y1, y2)
+        xb = min(x1 + w1, x2 + w2)
+        yb = min(y1 + h1, y2 + h2)
+        inter_w = max(0, xb - xa)
+        inter_h = max(0, yb - ya)
+        inter_area = inter_w * inter_h
+        area1 = w1 * h1
+        area2 = w2 * h2
+        union_area = area1 + area2 - inter_area
+        if union_area == 0:
+            return 0.0
+        return inter_area / union_area
 
     # 按image_id分组
     gt_anns = {}
@@ -350,7 +409,8 @@ def correct_predicted_categories(coco_data, iou_threshold=0.5):
             max_iou = 0
             matched_gt = None
             for gt in gts:
-                iou = pred["iou"]
+                print(pred)
+                iou = compute_iou(pred["bbox"], gt["bbox"])
                 if iou > max_iou:
                     max_iou = iou
                     matched_gt = gt
@@ -371,8 +431,9 @@ def merge_coco_categories(coco_data, merge_dict = None):
     Return:
         合并后的coco_data
     """
-    if merge_dict is None:
+    if not isinstance(merge_dict, dict):
         return coco_data
+    print(merge_dict)
     name2id = {cat['name']: cat['id'] for cat in coco_data['categories']}
     new_categories = []
     new_name2id = {}

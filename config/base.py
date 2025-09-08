@@ -16,7 +16,6 @@ class BaseConfig:
         "max_epochs": 30,
         "batch_size": 64,
         "num_workers": 12,
-        "num_classes": 2,
         "dataset": {
             "train_path": "/root/autodl-tmp/seat_dataset/chengdu_customer",
             "val_path": "/root/autodl-tmp/seat_dataset/chengdu_valid/",
@@ -58,7 +57,7 @@ class BaseConfig:
             配置是否有效
         """
         required_keys = [
-            'lr', 'max_epochs', 'batch_size', 'num_workers', 'num_classes',
+            'lr', 'max_epochs', 'batch_size', 'num_workers',
             'dataset', 'min_bbox_area', 'backbone_weights'
         ]
         

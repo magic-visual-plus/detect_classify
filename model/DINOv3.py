@@ -7,10 +7,16 @@ class DinoV3Classifier(nn.Module):
     def __init__(self, backbone_name, backbone_weights, num_classes, freeze_backbone=True):
         super().__init__()
         self.backbone = self.load_backbone(backbone_name, backbone_weights)
-        self.head = nn.Sequential(
-            nn.Dropout(p=0.2),
-            nn.Linear(self.backbone.embed_dim * 2, num_classes)
-        )
+        if num_classes == 2:
+            self.head = nn.Sequential(
+                nn.Dropout(p=0.2),
+                nn.Linear(self.backbone.embed_dim * 2, 1)
+            )
+        else:
+            self.head = nn.Sequential(
+                nn.Dropout(p=0.2),
+                nn.Linear(self.backbone.embed_dim * 2, num_classes)
+            )
         if freeze_backbone:
             self.freeze_backbone()
         

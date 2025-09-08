@@ -6,7 +6,6 @@ lr: 0.0001
 max_epochs: 30
 batch_size: 64
 num_workers: 12
-num_classes: 2
 
 # 数据集配置
 dataset:
@@ -14,12 +13,20 @@ dataset:
   val_path: "/root/autodl-tmp/seat_dataset/chengdu_valid/"
   train_ann: "/root/autodl-tmp/seat_dataset/chengdu_customer/_classification.coco.json"
   val_ann: "/root/autodl-tmp/seat_dataset/chengdu_valid/_classification.coco.json"
-target_category_names: ["褶皱"]
+# target_category_names: ["褶皱（重度）", "划伤"]
+# target_category_names: ["褶皱（重度）"]
+target_category_names: ['其他', '划伤', '压痕', '异物外漏', '折痕', '抛线', '拼接间隙', '水渍', '破损', '碰伤', '红标签', '线头', '脏污', '褶皱(T型)', '褶皱（重度）', '重跳针']
 iou_threshold: 0.4
-merge_coco_dict: None
+merge_coco_dict:
+  缺陷: ['其他', '划伤', '压痕', '异物外漏', '折痕', '抛线', '拼接间隙', '水渍', '破损', '碰伤', '红标签', '线头', '脏污', '褶皱(T型)', '褶皱（重度）', '重跳针']
+  背景: ["背景"]
 
 # 数据预处理参数
 min_bbox_area: 900
+
+resize:
+  width: 224
+  height: 224
 
 # 模型配置
 backbone_weights: "/root/autodl-tmp/seat_model/dinov3/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth"
