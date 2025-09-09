@@ -123,6 +123,68 @@ class COCOClassificationDataset(Dataset):
 
         return cropped_image, label, info
 
+    def export_to_folder(self, export_dir, img_format="jpg", exist_ok=False, scale_factor=1.0):
+        """
+        Export the dataset as a folder-structured classification dataset, 
+        with each class in a subfolder and images cropped to the target object.
+        Args:
+            export_dir (str): Root directory to export to.
+            img_format (str): Image format for export (e.g., 'jpg', 'png').
+            exist_ok (bool): Whether to allow overwriting if the directory exists.
+            scale_factor (float): Scale factor for cropping.
+        """
+        import shutil
+        from tqdm import tqdm
+
+        # PIL image format mapping
+        format_map = {
+            "jpg": "JPEG",
+            "jpeg": "JPEG",
+            "png": "PNG",
+            "bmp": "BMP",
+            "tiff": "TIFF",
+            "webp": "WEBP"
+        }
+        img_format_lower = img_format.lower()
+        pil_format = format_map.get(img_format_lower, None)
+        if pil_format is None:
+            raise ValueError(f"Unsupported image format: {img_format}. Please use jpg, png, bmp, tiff, webp, etc.")
+
+        if os.path.exists(export_dir):
+            if not exist_ok:
+                raise FileExistsError(f"Export directory {export_dir} already exists. Set exist_ok=True to overwrite.")
+            else:
+                print(f"Warning: Export directory {export_dir} already exists. Contents may be overwritten.")
+        else:
+            os.makedirs(export_dir, exist_ok=True)
+
+        # Create subdirectories for each class
+        for label in range(len(self.cat_ids)):
+            class_name = self.label_to_cat_name[label]
+            class_dir = os.path.join(export_dir, class_name)
+            os.makedirs(class_dir, exist_ok=True)
+
+        for idx in tqdm(range(len(self.annotations)), desc="Exporting classification images"):
+            ann = self.annotations[idx]
+            category_id = ann['category_id']
+            label = self.cat_id_to_label[category_id]
+            class_name = self.label_to_cat_name[label]
+
+            img_info = self.coco.loadImgs(ann['image_id'])[0]
+            img_path = os.path.join(self.root_dir, img_info['file_name'])
+            image = Image.open(img_path).convert('RGB')
+
+            bbox = ann['bbox']
+            x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+            cropped_image = crop_adaptive_square(image, x, y, w, h, scale_factor=scale_factor)
+
+            # File name: imageid_annid.suffix (suffix is always lower case)
+            out_name = f"{ann['image_id']}_{ann['id']}.{img_format_lower}"
+            out_path = os.path.join(export_dir, class_name, out_name)
+            cropped_image.save(out_path, format=pil_format)
+
+        print(f"Export complete. Images saved to {export_dir}")
+
     def get_num_classes(self):
         """返回类别数量"""
         return len(self.cat_ids)

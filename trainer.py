@@ -299,6 +299,20 @@ def main(config_dict):
         batch_size=config_dict['batch_size'],
         num_workers=config_dict['num_workers'],
     )
+    # 打印不同类别样本数量（训练集和验证集）
+    from collections import Counter
+
+    def print_category_sample_counts(dataset, dataset_name="train"):
+        cat_id_list = []
+        for ann in dataset.annotations:
+            cat_id_list.append(ann['category_id'])
+        counter = Counter(cat_id_list)
+        print(f"\n{dataset_name} category sample counts:")
+        for idx, name in enumerate(dataset.cat_names):
+            print(f"  {name}: {counter.get(idx, 0)}")
+
+    print_category_sample_counts(train_dataset, "Train")
+    print_category_sample_counts(val_dataset, "Val")
 
     print(train_dataset.cat_names)
     num_classes = len(train_dataset.cat_names)

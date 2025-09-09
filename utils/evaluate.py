@@ -30,7 +30,11 @@ class DetectionClassificationEvaluator:
                  classification_model_path: str,
                  backbone_name: str,
                  device: str = "cuda:0",
-                 repo_dir: str = "/root/dinov3"):
+                 repo_dir: str = "/root/dinov3",
+                 min_area: int = 900,
+                 classification_confidence_threshold: float = 0.3,
+                 classification_pad_color: Tuple[int, int, int] = (114, 114, 114),
+                 classification_class_names: Optional[List[str]] = None):
         """
         初始化评估器
         
@@ -40,9 +44,17 @@ class DetectionClassificationEvaluator:
             backbone_name: 分类模型backbone名称
             device: 设备
             repo_dir: DINOv3仓库目录
+            min_area: 分类过滤最小面积
+            classification_confidence_threshold: 分类过滤检测置信度阈值
+            classification_pad_color: 分类模型填充颜色
+            classification_class_names: 分类模型类别名称
         """
         self.device = device
         self.repo_dir = repo_dir
+        self.min_area = min_area
+        self.classification_confidence_threshold = classification_confidence_threshold
+        self.classification_pad_color = classification_pad_color
+        self.classification_class_names = classification_class_names
         
         # 加载检测模型
         self.detection_model = self._load_detection_model(detection_model_path)
@@ -59,6 +71,8 @@ class DetectionClassificationEvaluator:
         print(f"检测模型类别数: {len(self.class_names)}")
         print(f"分类模型类别数: {self.num_classes}")
         print(f"检测模型类别名称: {self.class_names}")
+        if self.classification_class_names is not None:
+            print(f"分类模型类别名称: {self.classification_class_names}")
     
     def _load_detection_model(self, model_path: str):
         """加载检测模型"""
@@ -92,6 +106,8 @@ class DetectionClassificationEvaluator:
             'REPO_DIR': self.repo_dir,
             'num_classes': num_classes
         }
+        if self.classification_class_names is not None:
+            cls_config['class_names'] = self.classification_class_names
         
         # 创建并加载模型
         model = get_model(cls_config)
@@ -168,7 +184,9 @@ class DetectionClassificationEvaluator:
                             classification_pad_color: Tuple[int, int, int] = (114, 114, 114),
                             filter_by_classification: bool = True,
                             filter_class_id: Optional[int] = None,
-                            classification_score_threshold: float = 0.2) -> Tuple[PredictionResult, PredictionResult, int]:
+                            classification_score_threshold: float = 0.2,
+                            min_area: Optional[int] = None,
+                            classification_confidence_threshold: Optional[float] = None) -> Tuple[PredictionResult, PredictionResult, int]:
         """
         处理单张图像
         
@@ -195,9 +213,21 @@ class DetectionClassificationEvaluator:
         # 分类预测和过滤
         if filter_by_classification and len(detection_result.bboxes) > 0:
             # 只对检测置信度大于阈值且面积大于阈值的框做分类预测
-            min_area = 900
+            # 根据id2names找到classification_class_names在检测模型中的类别id
+            classification_class_ids = []
+            for class_name in self.classification_class_names:
+                found = False
+                for class_id, name in self.detection_model.id2names.items():
+                    if name == class_name:
+                        classification_class_ids.append(class_id)
+                        found = True
+                        break
+                if not found:
+                    print(f"Warning: '{class_name}' not found in detection model id2names")
+            min_area_val = min_area if min_area is not None else self.min_area
+            conf_thr = classification_confidence_threshold if classification_confidence_threshold is not None else self.classification_confidence_threshold
             areas = (detection_result.bboxes[:, 2] - detection_result.bboxes[:, 0]) * (detection_result.bboxes[:, 3] - detection_result.bboxes[:, 1])
-            conf_mask = (detection_result.scores > 0.3) & (areas > min_area)
+            conf_mask = (detection_result.scores > conf_thr) & (areas > min_area_val) & (np.isin(detection_result.cls, np.array(classification_class_ids)))
             if np.any(conf_mask):
                 # 只取高置信度的框
                 filtered_bboxes = detection_result.bboxes[conf_mask]
@@ -219,7 +249,6 @@ class DetectionClassificationEvaluator:
                 print(f"classification_results: {classification_results}")
 
                 # 只对高置信度框做分类过滤，低置信度框直接保留
-                # 构造一个和原检测框数量一致的分类结果列表，低置信度的填None
                 full_classification_results = [None] * len(detection_result.bboxes)
                 idx_high_conf = np.where(conf_mask)[0]
                 for i, idx in enumerate(idx_high_conf):
@@ -247,7 +276,9 @@ class DetectionClassificationEvaluator:
                         filter_class_id: Optional[int] = None,
                         classification_score_threshold: float = 0.2,
                         eval_class_names: Optional[List[str]] = None,
-                        final_score_threshold: float = 0.3) -> Dict[str, Any]:
+                        final_score_threshold: float = 0.3,
+                        min_area: Optional[int] = None,
+                        classification_confidence_threshold: Optional[float] = None) -> Dict[str, Any]:
         """
         评估整个数据集
         
@@ -262,6 +293,8 @@ class DetectionClassificationEvaluator:
             classification_score_threshold: 分类分数阈值
             eval_class_names: 要评估的类别名称列表
             final_score_threshold: 最终分数阈值
+            min_area: 分类过滤最小面积
+            classification_confidence_threshold: 分类过滤检测置信度阈值
             
         Returns:
             评估结果字典
@@ -297,7 +330,9 @@ class DetectionClassificationEvaluator:
                 classification_pad_color=classification_pad_color,
                 filter_by_classification=filter_by_classification,
                 filter_class_id=filter_class_id,
-                classification_score_threshold=classification_score_threshold
+                classification_score_threshold=classification_score_threshold,
+                min_area=min_area,
+                classification_confidence_threshold=classification_confidence_threshold
             )
             
             gts.append(gt_record)
@@ -347,27 +382,45 @@ def main():
     parser.add_argument('--confidence_threshold', type=float, default=0.0, help='检测置信度阈值')
     parser.add_argument('--max_size', type=int, default=1536, help='最大图像尺寸')
     parser.add_argument('--classification_scale_factor', type=float, default=1.0, help='分类图片缩放因子')
-    parser.add_argument('--classification_score_threshold', type=float, default=0.9, help='分类分数阈值')
+    parser.add_argument('--classification_score_threshold', type=float, default=0.6, help='分类分数阈值')
     parser.add_argument('--final_score_threshold', type=float, default=0.3, help='最终分数阈值')
     parser.add_argument('--filter_class_id', type=int, help='要过滤的类别ID')
     parser.add_argument('--no_classification_filter', action='store_true', help='不使用分类过滤')
     parser.add_argument('--eval_class_names', nargs='*', help='要评估的类别名称')
+    parser.add_argument('--min_area', type=int, default=900, help='最小面积')
+    parser.add_argument('--classification_confidence_threshold', type=float, default=0.25, help='分类模型过滤检测置信度阈值')
+    parser.add_argument('--classification_pad_color', type=str, default="114,114,114", help='分类模型填充颜色, 逗号分隔如114,114,114')
+    parser.add_argument('--classification_class_names', nargs='*', help='分类模型类别名称')
     
     args = parser.parse_args()
     if args.eval_class_names is None:
-        args.eval_class_names =  [
-            '划伤', '压痕', '异物外漏', '折痕', '抛线', 
-            '拼接间隙', '破损', '碰伤', '红标签', '线头', 
-            '脏污', '褶皱(T型)', '褶皱（重度）', '重跳针'
-        ]
-    
+        args.eval_class_names = ['划伤', '压痕', '异物外漏', '折痕', '抛线', "吊紧", "烫伤", 
+        '拼接间隙', '破损', '碰伤', '红标签', '线头', '脏污', '褶皱(T型)', '褶皱（重度）', '重跳针']
+    if args.classification_class_names is None:
+        args.classification_class_names = args.eval_class_names
+    # 解析分类模型填充颜色
+    if isinstance(args.classification_pad_color, str):
+        try:
+            pad_color = tuple(int(x) for x in args.classification_pad_color.split(','))
+            if len(pad_color) != 3:
+                raise ValueError
+        except Exception:
+            print("分类模型填充颜色参数格式错误，应为如114,114,114")
+            pad_color = (114, 114, 114)
+    else:
+        pad_color = args.classification_pad_color
+
     # 创建评估器
     evaluator = DetectionClassificationEvaluator(
         detection_model_path=args.detection_model,
         classification_model_path=args.classification_model,
         backbone_name=args.backbone_name,
         device=args.device,
-        repo_dir=args.repo_dir
+        repo_dir=args.repo_dir,
+        min_area=args.min_area,
+        classification_confidence_threshold=args.classification_confidence_threshold,
+        classification_pad_color=pad_color,
+        classification_class_names=args.classification_class_names
     )
     
     # 执行评估
@@ -376,11 +429,14 @@ def main():
         confidence_threshold=args.confidence_threshold,
         max_size=args.max_size,
         classification_scale_factor=args.classification_scale_factor,
+        classification_pad_color=pad_color,
         filter_by_classification=not args.no_classification_filter,
         filter_class_id=args.filter_class_id,
         classification_score_threshold=args.classification_score_threshold,
         eval_class_names=args.eval_class_names,
-        final_score_threshold=args.final_score_threshold
+        final_score_threshold=args.final_score_threshold,
+        min_area=args.min_area,
+        classification_confidence_threshold=args.classification_confidence_threshold
     )
     
     # 打印结果

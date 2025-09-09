@@ -222,7 +222,7 @@ def args_to_config_dict(args: argparse.Namespace) -> Dict[str, Any]:
     config_dict = {}
     
     # 直接参数
-    direct_params = ['lr', 'batch_size', 'max_epochs', 'num_workers', 'num_classes', 'min_bbox_area', 'backbone_weights']
+    direct_params = ['lr', 'batch_size', 'max_epochs', 'num_workers', 'min_bbox_area', 'backbone_weights']
     for param in direct_params:
         value = getattr(args, param)
         if value is not None:
