@@ -11,6 +11,7 @@ from torchvision import transforms
 
 __all__ = [
     "COCOClassificationDataset",    # COCO分类任务数据集
+    "crop_adaptive_square",          # 自适应正方形裁剪
     "load_coco_file",               # 加载coco文件
     "save_coco_file",               # 保存cocow文件
     "filter_and_remap_coco_categories",  # 筛选并重映射COCO类别
@@ -84,10 +85,8 @@ class COCOClassificationDataset(Dataset):
         # 获取标注信息
         ann = self.annotations[idx]
 
-        # 再次检查，防止意外的category_id
         category_id = ann['category_id']
         if category_id not in self.cat_id_to_label:
-            # 理论上不会发生，因为初始化时已过滤
             raise ValueError(f"标注类别ID {category_id} 不在目标类别列表中，请检查数据集和类别过滤设置。")
 
         # 获取图片信息
@@ -182,7 +181,9 @@ def crop_adaptive_square(image, x, y, w, h, scale_factor=1.5, pad_mode="constant
             return image.crop((left_clip, top_clip, right_clip, bottom_clip))  
         
         elif pad_mode == "constant":  
-            # 创建画布并填充  
+            if isinstance(pad_color, (list, tuple)):
+                pad_color = tuple(int(c) for c in pad_color)
+            square_size = int(square_size)
             canvas = Image.new(image.mode, (square_size, square_size), pad_color)  
             
             # 计算有效区域  
@@ -409,7 +410,6 @@ def correct_predicted_categories(coco_data, iou_threshold=0.5):
             max_iou = 0
             matched_gt = None
             for gt in gts:
-                print(pred)
                 iou = compute_iou(pred["bbox"], gt["bbox"])
                 if iou > max_iou:
                     max_iou = iou

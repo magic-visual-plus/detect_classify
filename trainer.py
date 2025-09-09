@@ -199,6 +199,8 @@ class DinoV3ClassifierTrainer(L.LightningModule):
             }
         }
     
+    
+    
 class ClassificationData(L.LightningDataModule):
     def __init__(
             self, 
@@ -217,6 +219,24 @@ class ClassificationData(L.LightningDataModule):
     
     def val_dataloader(self):
         return self._val_dataloader
+
+def get_model(config_dict):
+    backbone_weights = config_dict.get('backbone_weights', None)
+    if backbone_weights is None:
+        backbone_name = config_dict['backbone_name']
+    else:
+        name_split_len = 2 if 'vit' in backbone_weights else 3
+        backbone_name = "_".join(backbone_weights.split("/")[-1].split("_")[:name_split_len])
+    print(f"backbone name: {backbone_name}")
+    print(f"backbone weights: {backbone_weights}")
+    return DinoV3Classifier(
+        backbone_name=backbone_name,
+        backbone_weights=backbone_weights,
+        num_classes=config_dict['num_classes'],
+        check_point_path=config_dict.get('check_point_path', None),
+        REPO_DIR=config_dict['REPO_DIR'],
+        freeze_backbone=True
+    )
 
 def main(config_dict):
     """
@@ -243,10 +263,10 @@ def main(config_dict):
             coco_data, 
             iou_threshold=config_dict['iou_threshold']
         )
-        # coco_data = utils.dataset.merge_coco_categories(
-        #     coco_data,
-        #     merge_dict=config_dict['merge_coco_dict']
-        # )
+        coco_data = utils.dataset.merge_coco_categories(
+            coco_data,
+            merge_dict=config_dict['merge_coco_dict']
+        )
 
         if new_coco_file:
             utils.dataset.save_coco_file(coco_data, new_coco_file)
@@ -279,6 +299,7 @@ def main(config_dict):
         batch_size=config_dict['batch_size'],
         num_workers=config_dict['num_workers'],
     )
+
     print(train_dataset.cat_names)
     num_classes = len(train_dataset.cat_names)
     print(f"num_classes: {num_classes}")

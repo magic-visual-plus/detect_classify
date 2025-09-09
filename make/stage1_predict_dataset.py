@@ -247,5 +247,8 @@ if __name__ == "__main__":
     #         "背景": ["背景"]
     #     }
     # )
-    with open(os.path.join(input_path, "_classification.coco.json"), "w", encoding="utf-8") as f:
+    save_path = os.path.join(input_path, "_classification.coco.json")
+    if os.path.exists(save_path):
+        os.remove(save_path)
+    with open(save_path, "w", encoding="utf-8") as f:
         json.dump(coco_output, f, ensure_ascii=False, indent=2)
