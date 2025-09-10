@@ -100,18 +100,20 @@ class DinoV3Classifier(nn.Module):
             probs = torch.sigmoid(logits)
             pred_classes = (probs > 0.5).long().squeeze(1)
             scores = torch.where(pred_classes == 1, probs.squeeze(1), 1 - probs.squeeze(1))
+            all_scores = torch.cat([1 - probs, probs], dim=1)  # [N, 2]
         else:
             probs = torch.softmax(logits, dim=1)
             pred_classes = torch.argmax(probs, dim=1)
             scores = probs[range(len(pred_classes)), pred_classes]
-        
+            all_scores = probs  # [N, num_classes]
+
         for i, bbox in enumerate(bboxs):
             results.append({
                 'bbox': bbox,
                 'pred_class': pred_classes[i].item(),
-                'score': scores[i].item()
+                'score': scores[i].item(),
+                'all_scores': all_scores[i].detach().cpu().numpy().tolist()
             })
         return results
-
 
         

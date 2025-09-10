@@ -1,5 +1,6 @@
 import os
 import sys
+from collections import Counter
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -300,7 +301,6 @@ def main(config_dict):
         num_workers=config_dict['num_workers'],
     )
     # 打印不同类别样本数量（训练集和验证集）
-    from collections import Counter
 
     def print_category_sample_counts(dataset, dataset_name="train"):
         cat_id_list = []
@@ -363,9 +363,9 @@ if __name__ == "__main__":
         if isinstance(value, dict):
             print(f"{key}:")
             for sub_key, sub_value in value.items():
-                print(f"  {sub_key}: {sub_value} ({type(sub_value)})")
+                print(f"  {sub_key}: {sub_value}")
         else:
-            print(f"{key}: {value} ({type(value)})")
+            print(f"{key}: {value}")
     print("=" * 50)
     
     main(config_dict)

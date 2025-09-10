@@ -236,7 +236,7 @@ if __name__ == "__main__":
     model = hq_dino.HQDINO(model=model_path)
     model.eval()
     model.to("cuda:0")
-    coco_output = predict_coco(coco_file, model, input_path, confidence=0.2, max_size=1536)
+    coco_output = predict_coco(coco_file, model, input_path, confidence=0.3, max_size=1536)
     # with open("predict_coco.json", "w", encoding="utf-8") as f:
     #     json.dump(coco_output, f, ensure_ascii=False, indent=2)
     # coco_output = correct_predicted_categories(coco_output)

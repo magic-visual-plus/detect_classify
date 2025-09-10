@@ -326,7 +326,7 @@ class DetectionClassificationEvaluator:
         
         # 创建过滤掩码
         cls_mask = [
-            (res is not None) and (res.get('pred_class') == filter_class_id) and (res.get('score', 0) > score_threshold)
+            (res is not None) and (res['all_scores'][filter_class_id] > score_threshold)
             for res in classification_results
         ]
         
@@ -587,7 +587,7 @@ def main():
     parser.add_argument('--filter_class_id', type=int, help='要过滤的类别ID')
     parser.add_argument('--no_classification_filter', action='store_true', help='不使用分类过滤')
     parser.add_argument('--eval_class_names', nargs='*', help='要评估的类别名称')
-    parser.add_argument('--min_area', type=int, default=900, help='最小面积')
+    parser.add_argument('--min_area', type=int, default=0, help='最小面积')
     parser.add_argument('--classification_confidence_threshold', type=float, default=0.25, help='分类模型过滤检测置信度阈值')
     parser.add_argument('--classification_pad_color', type=str, default="114,114,114", help='分类模型填充颜色, 逗号分隔如114,114,114')
     parser.add_argument('--classification_class_names', nargs='*', help='分类模型类别名称')
@@ -609,6 +609,9 @@ def main():
             pad_color = (114, 114, 114)
     else:
         pad_color = args.classification_pad_color
+    print("------"* 10)
+    print(args)
+    print("------" * 10)
 
     # 创建评估器
     evaluator = DetectionClassificationEvaluator(
@@ -623,8 +626,24 @@ def main():
         classification_class_names=args.classification_class_names
     )
     # 执行评估
+    # results = evaluator.evaluate_dataset(
+    #     input_path=args.input_path,
+    #     confidence_threshold=args.confidence_threshold,
+    #     max_size=args.max_size,
+    #     classification_scale_factor=args.classification_scale_factor,
+    #     classification_pad_color=pad_color,
+    #     filter_by_classification=not args.no_classification_filter,
+    #     filter_class_id=args.filter_class_id,
+    #     classification_score_threshold=args.classification_score_threshold,
+    #     eval_class_names=args.eval_class_names,
+    #     final_score_threshold=args.final_score_threshold,
+    #     min_area=args.min_area,
+    #     classification_confidence_threshold=args.classification_confidence_threshold
+    # )
+    # evaluator.print_results(results)
+    # exit()
     test_results = {}
-    for classification_score_threshold in np.arange(0.5, 0.95, 0.05): #  0.7, 0.8, 0.9]:
+    for classification_score_threshold in np.arange(0.00, 1.00, 0.05): #  0.7, 0.8, 0.9]:
         results = evaluator.evaluate_dataset(
             input_path=args.input_path,
             confidence_threshold=args.confidence_threshold,
@@ -648,6 +667,7 @@ if __name__ == '__main__':
     for classification_score_threshold, result in results.items():
         print(f"classification_score: {classification_score_threshold}")
         print(result['classification_confidence_threshold_result'])
+    
     for classification_score_threshold, result in results.items():
         print(f"classification_score: {classification_score_threshold}")
         print(result['class_specific_results'])
