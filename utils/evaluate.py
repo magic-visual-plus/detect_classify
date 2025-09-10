@@ -22,6 +22,175 @@ import utils
 import utils.transforms
 
 
+def compute_iou(box1, box2):
+    """
+    计算两个bbox的IoU
+    box: [x1, y1, x2, y2]
+    """
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+    inter_area = max(0, x2 - x1) * max(0, y2 - y1)
+    area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    union_area = area1 + area2 - inter_area
+    if union_area == 0:
+        return 0.0
+    return inter_area / union_area
+
+
+def compute_confusion_matrix_binary(gts, preds, num_classes, score_thr=0.2, iou_thr = 0.5, eval_class_ids=None):
+    """
+    该函数通过遍历每一张图片的预测和标注，基于IoU和类别信息，统计三类情况的数量，最终返回混淆矩阵及相关指标
+    混淆矩阵的结构如下：
+
+                  | 预测为缺陷（正类） | 预测为正常或其他缺陷（负类） |
+        ----------|-------------------|---------------------------|
+        真实为缺陷 |        TP         |        FN                 |
+        真实为正常 |        FP         |        TN                 |
+
+    """
+    conf_mat = np.zeros((num_classes, 2, 2), dtype=int)
+
+    for i, (gt, pred) in enumerate(zip(gts, preds)):
+        # 基于置信度和评估类别筛选出pred和gt
+        if eval_class_ids is None:
+            gt_cls_mask = np.ones(len(gt.cls), dtype=bool)
+            pred_cls_mask = np.ones(len(pred.cls), dtype=bool)
+        else:
+            gt_cls_mask = np.array([_cls in eval_class_ids for _cls in gt.cls], dtype=bool)   # 筛选出评估类别
+            pred_cls_mask = np.array([_cls in eval_class_ids for _cls in pred.cls], dtype=bool)
+        pred_mask = (pred.scores > score_thr) & pred_cls_mask
+        pred_bboxes = pred.bboxes[pred_mask]
+        pred_cls = pred.cls[pred_mask]
+        pred_scores = pred.scores[pred_mask]
+        gt_bboxes = gt.bboxes[gt_cls_mask]
+        gt_cls = gt.cls[gt_cls_mask]
+        
+        if len(pred_bboxes) == 0 and len(gt_bboxes) == 0:
+            continue
+        gt_matched = np.zeros(len(gt_bboxes), dtype=bool)
+        for pred_i, (pred_bbox, pred_class_id) in enumerate(zip(pred_bboxes, pred_cls)):
+            is_matched = False
+            for gt_i, (gt_bbox, gt_class_id) in enumerate(zip(gt_bboxes, gt_cls)):
+                if gt_class_id != pred_class_id:
+                    continue
+                if gt_matched[gt_i]:  
+                    continue
+                iou = compute_iou(gt_bbox, pred_bbox)
+                if iou > iou_thr:
+                    conf_mat[gt_class_id, 0, 0] += 1
+                    gt_matched[gt_i] = True
+                    is_matched = True
+                    break
+            if not is_matched:
+                conf_mat[pred_class_id, 1, 0] += 1
+        for gt_mat, cls_id in zip(gt_matched, gt_cls):
+            if not gt_mat:
+                conf_mat[cls_id, 0, 1] += 1
+    # 基于每个类别求平均（如果该类别的混淆矩阵全为0，则不计入平均）
+    recalls = []
+    precisions = []
+    f1_scores = []
+    for cls in range(conf_mat.shape[0]):
+        # 判断该类别的混淆矩阵是否全为0
+        if np.sum(conf_mat[cls]) == 0:
+            continue
+        tp = conf_mat[cls, 0, 0]
+        fn = conf_mat[cls, 0, 1]
+        fp = conf_mat[cls, 1, 0]
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        if (recall + precision) > 0:
+            f1 = 2 * recall * precision / (recall + precision)
+        else:
+            f1 = 0.0
+        recalls.append(recall)
+        precisions.append(precision)
+        f1_scores.append(f1)
+
+    recall_mean = np.mean(recalls) if len(recalls) > 0 else 0.0
+    precision_mean = np.mean(precisions) if len(precisions) > 0 else 0.0
+    f1_score_mean = np.mean(f1_scores) if len(f1_scores) > 0 else 0.0
+
+    return {
+        'conf_mat': conf_mat,
+        'recall': recall_mean,
+        'precision': precision_mean,
+        'f1_score': f1_score_mean
+    }
+
+
+def compute_confusion_matrix_binary_ignore_class(gts, preds, score_thr=0.3, iou_thr=0.5, eval_class_ids=None):
+    """
+    计算二分类混淆矩阵（不考虑类别是否匹配，只要有IOU即可匹配）
+
+    Args:
+        gts: list，每个元素为gt记录，需有bboxes字段
+        preds: list，每个元素为pred记录，需有bboxes和scores字段
+        score_thr: 置信度阈值
+        iou_thr: IOU阈值
+
+    Returns:
+        dict: 包含混淆矩阵、recall、precision、f1_score
+    """
+    tp = 0
+    fp = 0
+    fn = 0
+
+    for gt, pred in zip(gts, preds):
+        if eval_class_ids is None:
+            gt_cls_mask = np.ones(len(gt.cls), dtype=bool)
+            pred_cls_mask = np.ones(len(pred.cls), dtype=bool)
+        else:
+            gt_cls_mask = np.array([_cls in eval_class_ids for _cls in gt.cls], dtype=bool)   # 筛选出评估类别
+            pred_cls_mask = np.array([_cls in eval_class_ids for _cls in pred.cls], dtype=bool)
+        gt_bboxes = np.array(getattr(gt, 'bboxes', []))[gt_cls_mask]
+        pred_bboxes = np.array(getattr(pred, 'bboxes', []))[pred_cls_mask]
+        pred_scores = np.array(getattr(pred, 'scores', []))[pred_cls_mask]
+
+        if len(pred_bboxes) == 0:
+            fn += len(gt_bboxes)
+            continue
+
+        # 只保留大于score_thr的预测框
+        keep = pred_scores > score_thr
+        pred_bboxes = pred_bboxes[keep]
+        if len(pred_bboxes) == 0:
+            fn += len(gt_bboxes)
+            continue
+
+        matched_gt = np.zeros(len(gt_bboxes), dtype=bool)
+        for pred_bbox in pred_bboxes:
+            found_match = False
+            for i, gt_bbox in enumerate(gt_bboxes):
+                if matched_gt[i]:
+                    continue
+                iou = compute_iou(pred_bbox, gt_bbox)
+                if iou > iou_thr:
+                    tp += 1
+                    matched_gt[i] = True
+                    found_match = True
+                    break
+            if not found_match:
+                fp += 1
+        fn += np.sum(~matched_gt)
+
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    f1_score = 2 * recall * precision / (recall + precision) if (recall + precision) > 0 else 0.0
+
+    return {
+        'tp': tp,
+        'fp': fp,
+        'fn': fn,
+        'recall': recall,
+        'precision': precision,
+        'f1_score': f1_score
+    }
+
+
 class DetectionClassificationEvaluator:
     """two stage模型评估器"""
     
@@ -332,7 +501,8 @@ class DetectionClassificationEvaluator:
                 filter_class_id=filter_class_id,
                 classification_score_threshold=classification_score_threshold,
                 min_area=min_area,
-                classification_confidence_threshold=classification_confidence_threshold
+                # classification_confidence_threshold=classification_confidence_threshold
+                classification_confidence_threshold=0.2
             )
             
             gts.append(gt_record)
@@ -342,19 +512,47 @@ class DetectionClassificationEvaluator:
         
         # 根据评估项（eval_class_names）进行最终的评估
         print("\n计算评估指标...")
-
+        
         # 获取需要评估的类别ID
         eval_class_ids = []
         if eval_class_names:
             eval_class_ids = [self.class_names.index(c) for c in eval_class_names if c in self.class_names]
+        
+        classification_confidence_threshold_result = compute_confusion_matrix_binary(gts, preds, num_classes=len(self.class_names), score_thr=classification_confidence_threshold, iou_thr=0.5, eval_class_ids=eval_class_ids)
+        print(f"confidence_threshold: {classification_confidence_threshold}")
+        print(classification_confidence_threshold_result)
+        print('-'*80)
 
+        # scores_thr = np.arange(0.2, 0.5, 0.01)
+        # f1s = np.zeros(len(scores_thr))
+        # resluts = []
+        # f1s_ignore_class = np.zeros(len(scores_thr))
+        # ignore_class_results = []
+        # for i, score_thr in tqdm(enumerate(scores_thr), desc="评估中..."):
+            # res = compute_confusion_matrix_binary(gts, preds, num_classes=len(self.class_names), score_thr=score_thr, iou_thr=0.5, eval_class_ids=eval_class_ids)
+            # f1 = res['f1_score']
+            # resluts.append(res)
+            # f1s[i] = f1
+            # ignore_class_res = compute_confusion_matrix_binary_ignore_class(gts, preds, score_thr=score_thr, iou_thr=0.5, eval_class_ids=eval_class_ids)
+            # ignore_class_results.append(ignore_class_res)
+            # f1s_ignore_class[i] = ignore_class_res['f1_score']
+        # max_id = np.argmax(f1s)
+        # print("考虑类别匹配的评估结果:")
+        # print(f"confidence: {scores_thr[max_id]}, recall: {resluts[max_id]['recall']}, precision: {resluts[max_id]['precision']}, f1_score: {resluts[max_id]['f1_score']}")
+        # print("不考虑类别匹配的评估结果:")
+        # max_id_ignore_class = np.argmax(f1s_ignore_class)
+        # print(f"confidence: {scores_thr[max_id_ignore_class]}, {ignore_class_results[max_id_ignore_class]}")
+        # print(ignore_class_results)
+       
         # 计算设定评估项的评估结果
         class_specific_results = evaluate.eval_detection_result_by_class_id(gts, preds, eval_class_ids)
+        conf = class_specific_results['confidence']
 
         return {
             'class_specific_results': class_specific_results,
             'class_names': self.class_names,
-            'num_classes': self.num_classes
+            'num_classes': self.num_classes,
+            'classification_confidence_threshold_result': {'confidence_threshold': classification_confidence_threshold, 'result': classification_confidence_threshold_result}
         }
 
     def print_results(self, results: Dict[str, Any]):
@@ -380,6 +578,9 @@ def main():
     parser.add_argument('--device', default='cuda:0', help='设备 (默认: cuda:0)')
     parser.add_argument('--repo_dir', default='/root/dinov3', help='DINOv3仓库目录')
     parser.add_argument('--confidence_threshold', type=float, default=0.0, help='检测置信度阈值')
+    # 检查检测模型是否一直使用固定置信度
+    parser.add_argument('--fixed_detection_confidence', action='store_true', help='检测模型是否始终使用固定置信度阈值')
+    parser.add_argument('--iou_threshold', type=float, default=0.5, help='IOU阈值')
     parser.add_argument('--max_size', type=int, default=1536, help='最大图像尺寸')
     parser.add_argument('--classification_scale_factor', type=float, default=1.0, help='分类图片缩放因子')
     parser.add_argument('--classification_score_threshold', type=float, default=0.6, help='分类分数阈值')
@@ -422,7 +623,6 @@ def main():
         classification_pad_color=pad_color,
         classification_class_names=args.classification_class_names
     )
-    
     # 执行评估
     results = evaluator.evaluate_dataset(
         input_path=args.input_path,
@@ -439,9 +639,8 @@ def main():
         classification_confidence_threshold=args.classification_confidence_threshold
     )
     
-    # 打印结果
-    evaluator.print_results(results)
-
+    return evaluator, results
 
 if __name__ == '__main__':
-    main()
+    evaluator, results = main()
+    evaluator.print_results(results)
