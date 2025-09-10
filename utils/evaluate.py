@@ -518,7 +518,7 @@ class DetectionClassificationEvaluator:
         if eval_class_names:
             eval_class_ids = [self.class_names.index(c) for c in eval_class_names if c in self.class_names]
         
-        classification_confidence_threshold_result = compute_confusion_matrix_binary(gts, preds, num_classes=len(self.class_names), score_thr=classification_confidence_threshold, iou_thr=0.5, eval_class_ids=eval_class_ids)
+        classification_confidence_threshold_result = compute_confusion_matrix_binary_ignore_class(gts, preds, score_thr=classification_confidence_threshold, iou_thr=0.5, eval_class_ids=eval_class_ids)
         print(f"confidence_threshold: {classification_confidence_threshold}")
         print(classification_confidence_threshold_result)
         print('-'*80)
@@ -578,7 +578,6 @@ def main():
     parser.add_argument('--device', default='cuda:0', help='设备 (默认: cuda:0)')
     parser.add_argument('--repo_dir', default='/root/dinov3', help='DINOv3仓库目录')
     parser.add_argument('--confidence_threshold', type=float, default=0.0, help='检测置信度阈值')
-    # 检查检测模型是否一直使用固定置信度
     parser.add_argument('--fixed_detection_confidence', action='store_true', help='检测模型是否始终使用固定置信度阈值')
     parser.add_argument('--iou_threshold', type=float, default=0.5, help='IOU阈值')
     parser.add_argument('--max_size', type=int, default=1536, help='最大图像尺寸')
@@ -624,23 +623,32 @@ def main():
         classification_class_names=args.classification_class_names
     )
     # 执行评估
-    results = evaluator.evaluate_dataset(
-        input_path=args.input_path,
-        confidence_threshold=args.confidence_threshold,
-        max_size=args.max_size,
-        classification_scale_factor=args.classification_scale_factor,
-        classification_pad_color=pad_color,
-        filter_by_classification=not args.no_classification_filter,
-        filter_class_id=args.filter_class_id,
-        classification_score_threshold=args.classification_score_threshold,
-        eval_class_names=args.eval_class_names,
-        final_score_threshold=args.final_score_threshold,
-        min_area=args.min_area,
-        classification_confidence_threshold=args.classification_confidence_threshold
-    )
-    
-    return evaluator, results
+    test_results = {}
+    for classification_score_threshold in np.arange(0.5, 0.95, 0.05): #  0.7, 0.8, 0.9]:
+        results = evaluator.evaluate_dataset(
+            input_path=args.input_path,
+            confidence_threshold=args.confidence_threshold,
+            max_size=args.max_size,
+            classification_scale_factor=args.classification_scale_factor,
+            classification_pad_color=pad_color,
+            filter_by_classification=not args.no_classification_filter,
+            filter_class_id=args.filter_class_id,
+            # classification_score_threshold=args.classification_score_threshold,
+            classification_score_threshold=classification_score_threshold,
+            eval_class_names=args.eval_class_names,
+            final_score_threshold=args.final_score_threshold,
+            min_area=args.min_area,
+            classification_confidence_threshold=args.classification_confidence_threshold
+        )
+        test_results[classification_score_threshold] = results
+    return evaluator, test_results
 
 if __name__ == '__main__':
     evaluator, results = main()
-    evaluator.print_results(results)
+    for classification_score_threshold, result in results.items():
+        print(f"classification_score: {classification_score_threshold}")
+        print(result['classification_confidence_threshold_result'])
+    for classification_score_threshold, result in results.items():
+        print(f"classification_score: {classification_score_threshold}")
+        print(result['class_specific_results'])
+        # evaluator.print_results(result)
