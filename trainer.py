@@ -1,11 +1,16 @@
 import os
 import sys
+import  shutil
+import yaml
 from collections import Counter
 import pandas as pd
 import torch
 import torch.nn as nn
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint
+import numpy as np
+from sklearn.metrics import precision_recall_curve, average_precision_score, roc_curve, auc
+import matplotlib.pyplot as plt
 
 from model.DINOv3 import DinoV3Classifier
 from torchmetrics.classification import Accuracy, Precision, Recall, ConfusionMatrix
@@ -41,11 +46,14 @@ class DinoV3ClassifierTrainer(L.LightningModule):
             self.val_precision = Precision(task="multiclass", num_classes=self.num_classes, average='macro')
             self.val_recall = Recall(task="multiclass", num_classes=self.num_classes, average='macro')
             
-        # 添加混淆矩阵用于计算每个类别的准确率
         self.val_confusion_matrix = ConfusionMatrix(task="multiclass", num_classes=self.num_classes)
         self.train_confusion_matrix = ConfusionMatrix(task="multiclass", num_classes=self.num_classes)
         
-        # 添加F1分数计算
+        # 用于存储PR曲线数据的列表
+        self.val_predictions = []
+        self.val_labels = []
+        self.val_probabilities = []
+        
         if self.num_classes == 2:
             self.val_f1 = 2 * self.val_precision * self.val_recall / (self.val_precision + self.val_recall + 1e-8)
         else:
@@ -65,7 +73,6 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         else:
             loss = self.loss_fn(outputs, labels)
             preds = torch.argmax(outputs, dim=1)
-            # 更新训练混淆矩阵
             self.train_confusion_matrix(preds, labels)
 
         self.log("train_loss", loss, prog_bar=True)
@@ -85,17 +92,19 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         images, labels, info = batch
         outputs = self.model(images)
         
-        # 处理二分类和多分类的不同情况
         if self.num_classes == 2:
             labels_float = labels.float().unsqueeze(1)  # [batch_size, 1]
             loss = self.loss_fn(outputs, labels_float)
-            # 二分类预测：sigmoid + 阈值0.5
             preds = (torch.sigmoid(outputs) > 0.5).long().squeeze(1)  # [batch_size]
+            
+            # 存储二分类的概率输出和标签用于PR曲线计算
+            probabilities = torch.sigmoid(outputs).squeeze(1).cpu().numpy()
+            self.val_probabilities.extend(probabilities)
+            self.val_labels.extend(labels.cpu().numpy())
+            self.val_predictions.extend(preds.cpu().numpy())
         else:
-            # 多分类：outputs shape [batch_size, num_classes], labels shape [batch_size]
             loss = self.loss_fn(outputs, labels)
             preds = torch.argmax(outputs, dim=1)
-            # 更新验证混淆矩阵
             self.val_confusion_matrix(preds, labels)
 
         self.log("val_loss", loss, prog_bar=True)
@@ -107,41 +116,107 @@ class DinoV3ClassifierTrainer(L.LightningModule):
 
     def calculate_per_class_metrics(self, confusion_matrix):
         """
-        计算每个类别的准确率（accuracy）、召回率（recall）、精确率（precision）
+        acc、recall、precision
         """
         cm = confusion_matrix.compute()
-        per_class_accuracy = []
-        per_class_recall = []
-        per_class_precision = []
-
-        for i in range(self.num_classes):
-            tp = cm[i, i].item()
-            total = cm[i, :].sum().item()  # 该类别的真实样本数（TP + FN）
-            predicted = cm[:, i].sum().item()  # 被预测为该类别的样本数（TP + FP）
-            all_samples = cm.sum().item()  # 总样本数
-
-            # 准确率：该类别被正确预测的样本数 / 总样本数
-            if all_samples > 0:
-                acc = tp / all_samples
-            else:
-                acc = 0.0
-            per_class_accuracy.append(acc)
-
-            # 召回率：TP / (TP + FN)
-            if total > 0:
-                recall = tp / total
-            else:
-                recall = 0.0
-            per_class_recall.append(recall)
-
-            # 精确率：TP / (TP + FP)
-            if predicted > 0:
-                precision = tp / predicted
-            else:
-                precision = 0.0
-            per_class_precision.append(precision)
-
-        return per_class_accuracy, per_class_recall, per_class_precision
+        acc = [(cm[i, i].item() / cm.sum().item()) if cm.sum().item() else 0.0 for i in range(self.num_classes)]
+        recall = [(cm[i, i].item() / cm[i, :].sum().item()) if cm[i, :].sum().item() else 0.0 for i in range(self.num_classes)]
+        precision = [(cm[i, i].item() / cm[:, i].sum().item()) if cm[:, i].sum().item() else 0.0 for i in range(self.num_classes)]
+        return acc, recall, precision
+    
+    def calculate_pr_curve_metrics(self):
+        """
+        计算PR曲线相关指标
+        """
+        if self.num_classes != 2 or len(self.val_probabilities) == 0:
+            return None
+            
+        y_true = np.array(self.val_labels)
+        y_scores = np.array(self.val_probabilities)
+        
+        # 计算PR曲线
+        precision, recall, thresholds = precision_recall_curve(y_true, y_scores)
+        
+        # 计算AUC-PR (Average Precision)
+        auc_pr = average_precision_score(y_true, y_scores)
+        
+        # 计算ROC曲线
+        fpr, tpr, roc_thresholds = roc_curve(y_true, y_scores)
+        auc_roc = auc(fpr, tpr)
+        
+        # 找到最佳阈值（F1分数最大）
+        f1_scores = 2 * (precision * recall) / (precision + recall + 1e-8)
+        best_idx = np.argmax(f1_scores)
+        best_threshold = thresholds[best_idx] if best_idx < len(thresholds) else 0.5
+        best_f1 = f1_scores[best_idx]
+        best_precision = precision[best_idx]
+        best_recall = recall[best_idx]
+        
+        pr_metrics = {
+            'auc_pr': auc_pr,
+            'auc_roc': auc_roc,
+            'best_threshold': best_threshold,
+            'best_f1': best_f1,
+            'best_precision': best_precision,
+            'best_recall': best_recall,
+            'precision_curve': precision,
+            'recall_curve': recall,
+            'thresholds': thresholds
+        }
+        
+        return pr_metrics
+    
+    def save_pr_curve_plot(self, pr_metrics):
+        """
+        保存PR曲线和ROC曲线图
+        """
+        try:
+            # 创建保存目录
+            save_dir = os.path.join(self.config.get('save_dir'), 'plot')
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir, exist_ok=True)
+            
+            # 创建子图
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+            
+            # PR曲线
+            ax1.plot(pr_metrics['recall_curve'], pr_metrics['precision_curve'], 
+                    color='blue', linewidth=2, label=f'PR Curve (AUC = {pr_metrics["auc_pr"]:.3f})')
+            ax1.axvline(x=pr_metrics['best_recall'], color='red', linestyle='--', 
+                       label=f'Best Threshold (F1={pr_metrics["best_f1"]:.3f})')
+            ax1.set_xlabel('Recall')
+            ax1.set_ylabel('Precision')
+            ax1.set_title('Precision-Recall Curve')
+            ax1.legend()
+            ax1.grid(True, alpha=0.3)
+            ax1.set_xlim([0, 1])
+            ax1.set_ylim([0, 1])
+            
+            y_true = np.array(self.val_labels)
+            y_scores = np.array(self.val_probabilities)
+            fpr, tpr, _ = roc_curve(y_true, y_scores)
+            ax2.plot(fpr, tpr, color='green', linewidth=2, 
+                    label=f'ROC Curve (AUC = {pr_metrics["auc_roc"]:.3f})')
+            ax2.plot([0, 1], [0, 1], color='gray', linestyle='--', alpha=0.5)
+            ax2.set_xlabel('False Positive Rate')
+            ax2.set_ylabel('True Positive Rate')
+            ax2.set_title('ROC Curve')
+            ax2.legend()
+            ax2.grid(True, alpha=0.3)
+            ax2.set_xlim([0, 1])
+            ax2.set_ylim([0, 1])
+            
+            plt.tight_layout()
+            
+            epoch = self.current_epoch if hasattr(self, 'current_epoch') else 0
+            plot_path = os.path.join(save_dir, f'pr_roc_curves_epoch_{epoch:02d}.png')
+            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            print(f"PR曲线和ROC曲线图已保存到: {plot_path}")
+            
+        except Exception as e:
+            print(f"保存PR曲线图时出错: {e}")
 
     
     def on_validation_epoch_end(self):
@@ -152,7 +227,6 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         val_precision = self.val_precision.compute()
         val_recall = self.val_recall.compute()
         
-        # 计算F1分数
         val_f1 = 2 * val_precision * val_recall / (val_precision + val_recall + 1e-8)
         
         self.log("val_acc_epoch", val_acc, prog_bar=False)
@@ -160,11 +234,36 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         self.log("val_recall_epoch", val_recall, prog_bar=False)
         self.log("val_f1_epoch", val_f1, prog_bar=False)
         
-        # 计算每个类别的准确率、召回率和精确率
+        # 对于二分类模型，计算PR曲线指标
+        if self.num_classes == 2:
+            pr_metrics = self.calculate_pr_curve_metrics()
+            if pr_metrics is not None:
+                # 记录PR曲线指标
+                self.log("val_auc_pr", pr_metrics['auc_pr'], prog_bar=False)
+                self.log("val_auc_roc", pr_metrics['auc_roc'], prog_bar=False)
+                self.log("val_best_f1", pr_metrics['best_f1'], prog_bar=False)
+                self.log("val_best_precision", pr_metrics['best_precision'], prog_bar=False)
+                self.log("val_best_recall", pr_metrics['best_recall'], prog_bar=False)
+                self.log("val_best_threshold", pr_metrics['best_threshold'], prog_bar=False)
+                
+                # 输出PR曲线指标
+                print("\n" + "="*60)
+                print("二分类模型 PR曲线指标:")
+                print("="*60)
+                print(f"AUC-PR (Average Precision): {pr_metrics['auc_pr']:.4f}")
+                print(f"AUC-ROC: {pr_metrics['auc_roc']:.4f}")
+                print(f"最佳阈值: {pr_metrics['best_threshold']:.4f}")
+                print(f"最佳F1分数: {pr_metrics['best_f1']:.4f}")
+                print(f"最佳阈值下的Precision: {pr_metrics['best_precision']:.4f}")
+                print(f"最佳阈值下的Recall: {pr_metrics['best_recall']:.4f}")
+                print("="*60)
+                
+                # 保存PR曲线图
+                self.save_pr_curve_plot(pr_metrics)
+        
         if self.num_classes > 2:
             per_class_acc, per_class_recall, per_class_precision = self.calculate_per_class_metrics(self.val_confusion_matrix)
             
-            # 记录每个类别的准确率、召回率和精确率
             for i in range(self.num_classes):
                 class_name = self.class_names[i] if i < len(self.class_names) else f"Class_{i}"
                 self.log(f"val_acc_{class_name}", per_class_acc[i], prog_bar=False)
@@ -185,11 +284,18 @@ class DinoV3ClassifierTrainer(L.LightningModule):
             print(df.to_string(index=False, float_format="%.4f", col_space=12))
             print("="*50)
         
+        # 重置指标
         self.val_accuracy.reset()
         self.val_precision.reset()
         self.val_recall.reset()
         if self.num_classes > 2:
             self.val_confusion_matrix.reset()
+        
+        # 清空PR曲线数据
+        if self.num_classes == 2:
+            self.val_predictions.clear()
+            self.val_labels.clear()
+            self.val_probabilities.clear()
     
     def configure_optimizers(self):
         """
@@ -346,10 +452,7 @@ def main(config_dict):
         num_workers=config_dict["num_workers"], 
     )
 
-    # 创建多个回调函数
     callbacks = []
-    
-    # 1. 基于验证损失的模型检查点
     loss_checkpoint = ModelCheckpoint(
         monitor="val_loss",
         mode="min",
@@ -358,8 +461,6 @@ def main(config_dict):
         save_last=True
     )
     callbacks.append(loss_checkpoint)
-    
-    # 2. 基于F1分数的最佳模型保存
     f1_checkpoint = ModelCheckpoint(
         monitor="val_f1_epoch",
         mode="max",
@@ -368,8 +469,6 @@ def main(config_dict):
         save_last=False
     )
     callbacks.append(f1_checkpoint)
-    
-    # 3. 基于验证准确率的最佳模型保存
     acc_checkpoint = ModelCheckpoint(
         monitor="val_acc_epoch",
         mode="max",
@@ -386,8 +485,18 @@ def main(config_dict):
         log_every_n_steps=1,     
         enable_progress_bar=True,  
         enable_model_summary=True, 
-        callbacks=callbacks
+        callbacks=callbacks,
+        default_root_dir=config_dict.get("save_dir", None),
     )
+    if args.save_dir is not None:
+        save_dir = config_dict.get('save_dir')
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir, exist_ok=True)
+        shutil.copy(train_coco_ann, os.path.join(save_dir, '_annclassfication.train.coco.json'))
+        shutil.copy(valid_coco_ann, os.path.join(save_dir,'_annclassfication.valid.coco.json'))
+        config_path = os.path.join(args.save_dir, "train_config.yaml")
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config_dict, f, allow_unicode=True, sort_keys=False)
     
     trainer.fit(model, data)
 
@@ -401,7 +510,7 @@ if __name__ == "__main__":
         config_manager.merge_config(override_config)
     
     config_dict = config_manager.to_dict()
-    
+            
     print("=" * 50)
     print("Train Config:")
     print("=" * 50)
