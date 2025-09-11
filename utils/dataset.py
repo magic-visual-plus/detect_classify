@@ -32,6 +32,7 @@ class COCOClassificationDataset(Dataset):
                  ann_file, 
                  transform=None,
                  min_bbox_area=400,
+                 crop_scale_factor=1.0,
                  target_categories=None):
         """
         Args:
@@ -44,7 +45,7 @@ class COCOClassificationDataset(Dataset):
         self.root_dir = root_dir
         self.transform = transform
         self.min_bbox_area = min_bbox_area
-
+        self.crop_scale_factor = crop_scale_factor
         # 加载COCO标注
         self.coco = COCO(ann_file)
 
@@ -104,7 +105,7 @@ class COCOClassificationDataset(Dataset):
         x2 = min(img_width, x + w)
         y2 = min(img_height, y + h)
 
-        cropped_image = crop_adaptive_square(image, x, y, w, h, scale_factor=1.0)
+        cropped_image = crop_adaptive_square(image, x, y, w, h, scale_factor=self.crop_scale_factor)
 
         label = self.cat_id_to_label[category_id]
 

@@ -5,6 +5,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import lightning as L
+from lightning.pytorch.callbacks import ModelCheckpoint
+
 from model.DINOv3 import DinoV3Classifier
 from torchmetrics.classification import Accuracy, Precision, Recall, ConfusionMatrix
 import utils
@@ -42,6 +44,12 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         # 添加混淆矩阵用于计算每个类别的准确率
         self.val_confusion_matrix = ConfusionMatrix(task="multiclass", num_classes=self.num_classes)
         self.train_confusion_matrix = ConfusionMatrix(task="multiclass", num_classes=self.num_classes)
+        
+        # 添加F1分数计算
+        if self.num_classes == 2:
+            self.val_f1 = 2 * self.val_precision * self.val_recall / (self.val_precision + self.val_recall + 1e-8)
+        else:
+            self.val_f1 = 2 * self.val_precision * self.val_recall / (self.val_precision + self.val_recall + 1e-8)
         
     def training_step(self, batch):
         """
@@ -144,9 +152,13 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         val_precision = self.val_precision.compute()
         val_recall = self.val_recall.compute()
         
+        # 计算F1分数
+        val_f1 = 2 * val_precision * val_recall / (val_precision + val_recall + 1e-8)
+        
         self.log("val_acc_epoch", val_acc, prog_bar=False)
         self.log("val_precision_epoch", val_precision, prog_bar=False)
         self.log("val_recall_epoch", val_recall, prog_bar=False)
+        self.log("val_f1_epoch", val_f1, prog_bar=False)
         
         # 计算每个类别的准确率、召回率和精确率
         if self.num_classes > 2:
@@ -188,7 +200,7 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         scheduler = torch.optim.lr_scheduler.LinearLR(
             optimizer,
             start_factor=1.0,
-            end_factor=0.01,
+            end_factor=self.config['lr_end_factor'],
             total_iters=self.config["max_epochs"]
         )
         return {
@@ -297,11 +309,11 @@ def main(config_dict):
         train_transform=utils.transforms.get_default_transform(size=(config_dict['resize']['width'], config_dict['resize']['height'])),
         val_transform=utils.transforms.get_default_transform(is_train=False, size=(config_dict['resize']['width'], config_dict['resize']['height'])),
         min_bbox_area=config_dict['min_bbox_area'],
+        crop_scale_factor=config_dict['crop_scale_factor'],
         batch_size=config_dict['batch_size'],
         num_workers=config_dict['num_workers'],
     )
     # 打印不同类别样本数量（训练集和验证集）
-
     def print_category_sample_counts(dataset, dataset_name="train"):
         cat_id_list = []
         for ann in dataset.annotations:
@@ -333,6 +345,39 @@ def main(config_dict):
         batch_size=config_dict["batch_size"], 
         num_workers=config_dict["num_workers"], 
     )
+
+    # 创建多个回调函数
+    callbacks = []
+    
+    # 1. 基于验证损失的模型检查点
+    loss_checkpoint = ModelCheckpoint(
+        monitor="val_loss",
+        mode="min",
+        save_top_k=1,
+        filename="best_loss_model_{epoch:02d}_{val_loss:.4f}",
+        save_last=True
+    )
+    callbacks.append(loss_checkpoint)
+    
+    # 2. 基于F1分数的最佳模型保存
+    f1_checkpoint = ModelCheckpoint(
+        monitor="val_f1_epoch",
+        mode="max",
+        save_top_k=1,
+        filename="best_f1_model_{epoch:02d}_{val_f1_epoch:.4f}",
+        save_last=False
+    )
+    callbacks.append(f1_checkpoint)
+    
+    # 3. 基于验证准确率的最佳模型保存
+    acc_checkpoint = ModelCheckpoint(
+        monitor="val_acc_epoch",
+        mode="max",
+        save_top_k=1,
+        filename="best_acc_model_{epoch:02d}_{val_acc_epoch:.4f}",
+        save_last=False
+    )
+    callbacks.append(acc_checkpoint)
     
     trainer = L.Trainer(
         max_epochs=config_dict["max_epochs"], 
@@ -341,6 +386,7 @@ def main(config_dict):
         log_every_n_steps=1,     
         enable_progress_bar=True,  
         enable_model_summary=True, 
+        callbacks=callbacks
     )
     
     trainer.fit(model, data)

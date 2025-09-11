@@ -8,6 +8,7 @@ import time
 import argparse
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
+import pandas as pd
 import torch
 from PIL import Image
 from tqdm import tqdm
@@ -567,9 +568,7 @@ class DetectionClassificationEvaluator:
 
         print("="*80)
 
-
-def main():
-    """主函数"""
+def parse_args():
     parser = argparse.ArgumentParser(description='检测和分类模型评估工具')
     parser.add_argument('detection_model', help='检测模型路径')
     parser.add_argument('input_path', help='输入数据路径')
@@ -591,8 +590,12 @@ def main():
     parser.add_argument('--classification_confidence_threshold', type=float, default=0.25, help='分类模型过滤检测置信度阈值')
     parser.add_argument('--classification_pad_color', type=str, default="114,114,114", help='分类模型填充颜色, 逗号分隔如114,114,114')
     parser.add_argument('--classification_class_names', nargs='*', help='分类模型类别名称')
-    
-    args = parser.parse_args()
+    parser.add_argument('--outdir', type=str, default='./output', help='输出结果保存目录')
+
+    return parser.parse_args()
+
+def main(args):
+    """主函数"""
     if args.eval_class_names is None:
         args.eval_class_names = ['划伤', '压痕', '异物外漏', '折痕', '抛线', "吊紧", "烫伤", 
         '拼接间隙', '破损', '碰伤', '红标签', '线头', '脏污', '褶皱(T型)', '褶皱（重度）', '重跳针']
@@ -663,11 +666,29 @@ def main():
     return evaluator, test_results
 
 if __name__ == '__main__':
-    evaluator, results = main()
+    args = parse_args()
+    evaluator, results = main(args)
+
+    table_data = []
     for classification_score_threshold, result in results.items():
         print(f"classification_score: {classification_score_threshold}")
         print(result['classification_confidence_threshold_result'])
-    
+        res = result['classification_confidence_threshold_result']
+        row = {
+            'classification_score': classification_score_threshold,
+            'confidence_threshold': res['confidence_threshold'],
+            'tp': res['result']['tp'],
+            'fp': res['result']['fp'],
+            'fn': res['result']['fn'],
+            'recall': res['result']['recall'],
+            'precision': res['result']['precision'],
+            'f1_score': res['result']['f1_score'],
+        }
+        table_data.append(row)
+    df = pd.DataFrame(table_data)
+    print(df.to_string(index=False))
+    df.to_csv(os.path.join(args.outdir, 'results.csv'), index=False)
+    print(f"结果已保存到 {os.path.join(args.outdir, 'results.csv')}")
     for classification_score_threshold, result in results.items():
         print(f"classification_score: {classification_score_threshold}")
         print(result['class_specific_results'])

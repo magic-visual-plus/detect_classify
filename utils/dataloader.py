@@ -10,6 +10,7 @@ def create_coco_dataloader(root_dir,
                           transform,
                           batch_size=32,
                           min_bbox_area=40,
+                          crop_scale_factor=1.0,
                           is_train=True,
                           target_categories=None,
                           num_workers=4,
@@ -38,6 +39,7 @@ def create_coco_dataloader(root_dir,
         ann_file=ann_file,
         transform=transform,
         min_bbox_area=min_bbox_area,
+        crop_scale_factor=crop_scale_factor,
         target_categories=target_categories
     )
     
@@ -58,6 +60,7 @@ def create_distributed_dataloader(root_dir,
                                 transform,
                                 batch_size=32,
                                 min_bbox_area=400,
+                                crop_scale_factor=1.0,
                                 is_train=True,
                                 target_categories=None,
                                 num_workers=4,
@@ -77,6 +80,7 @@ def create_distributed_dataloader(root_dir,
         ann_file=ann_file,
         transform=transform,
         min_bbox_area=min_bbox_area,
+        crop_scale_factor=crop_scale_factor,
         target_categories=target_categories
     )
     
@@ -128,8 +132,6 @@ def get_dataloader_stats(dataloader, dataset):
     return stats
 
 
-
-# 便捷函数
 def create_train_val_dataloaders(train_root,
                                 train_ann,
                                 train_transform,
@@ -138,6 +140,7 @@ def create_train_val_dataloaders(train_root,
                                 val_transform,
                                 batch_size=32,
                                 min_bbox_area=100,
+                                crop_scale_factor=1.0,
                                 target_categories=None,
                                 num_workers=4):
     """
@@ -149,6 +152,7 @@ def create_train_val_dataloaders(train_root,
         transform=train_transform,
         batch_size=batch_size,
         min_bbox_area=min_bbox_area,
+        crop_scale_factor=crop_scale_factor,
         is_train=True,
         target_categories=target_categories,
         num_workers=num_workers
@@ -160,6 +164,7 @@ def create_train_val_dataloaders(train_root,
         transform=val_transform,
         batch_size=batch_size,
         min_bbox_area=min_bbox_area,
+        crop_scale_factor=crop_scale_factor,
         is_train=False,
         target_categories=target_categories,
         num_workers=num_workers
@@ -201,7 +206,7 @@ def tensor_to_pil(tensor):
 
 def get_batch_info(batch):
     """
-    获取批次信息的便捷函数
+    获取批次信息
     
     Args:
         batch: (images, labels, info) 元组

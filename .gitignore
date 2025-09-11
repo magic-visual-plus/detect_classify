@@ -2,8 +2,10 @@ __pycache__
 *.egg-info
 */runs/detect/*
 */mm_runs/*
+*.log
 scripts/checkpoints/*
 output
+lightning_logs
 dinov3
 runs
 model_files

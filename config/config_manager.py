@@ -183,6 +183,8 @@ def parse_args() -> argparse.Namespace:
         Parsed arguments
     """
     parser = argparse.ArgumentParser(description='Training configuration')
+    parser.add_argument('--save_dir', type=str, default=None,
+                       help='Directory to save models')
     parser.add_argument('--config', '-c', type=str, required=True, 
                        help='Path to config file (YAML format)')
     parser.add_argument('--lr', type=float, default=None,
@@ -222,7 +224,10 @@ def args_to_config_dict(args: argparse.Namespace) -> Dict[str, Any]:
     config_dict = {}
     
     # 直接参数
-    direct_params = ['lr', 'batch_size', 'max_epochs', 'num_workers', 'min_bbox_area', 'backbone_weights']
+    direct_params = [
+        'lr', 'batch_size', 'max_epochs', 'num_workers',
+        'min_bbox_area', 'backbone_weights', 'save_dir'
+    ]
     for param in direct_params:
         value = getattr(args, param)
         if value is not None:

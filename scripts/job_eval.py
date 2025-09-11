@@ -6,7 +6,7 @@ from hq_job.job_engine_local import JobEngineLocal, JobDescription
 
 checkpoints = sys.argv[1]
 current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-out_dir = f"/root/autodl-tmp/eval_out/{current_time}/"
+out_dir = f"/root/autodl-tmp/eval_out/{current_time}"
 os.makedirs(out_dir, exist_ok=True)
 shutil.copy2("/root/detect_classify/utils/evaluate.py", f"{out_dir}/evaluate.py")
 
@@ -23,7 +23,9 @@ engine.run(
             "--classification_confidence_threshold",   # 一阶段模型置信度
             "0.2",
             "--classification_score_threshold",     # 二阶段模型置信度
-            "0.6"
+            "0.6",
+            "--outdir",
+            out_dir
         ],
         working_dir="/root/detect_classify",
         output_dir=out_dir,

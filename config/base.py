@@ -82,6 +82,5 @@ class BaseConfig:
         self.config_manager[key] = value
 
 
-# 为了向后兼容，保留原有的 _base_ 变量
 _base_ = BaseConfig.DEFAULT_CONFIG
 
