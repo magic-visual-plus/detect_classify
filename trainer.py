@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import  shutil
 import yaml
 from collections import Counter
@@ -80,9 +81,15 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         self.log("train_precision", self.train_precision(preds, labels), prog_bar=True)
         self.log("train_recall", self.train_recall(preds, labels), prog_bar=True)
         
-        current_lr = self.trainer.optimizers[0].param_groups[0]['lr'] if self.trainer and self.trainer.optimizers else None
-        if current_lr is not None:
-            self.log("lr", current_lr, prog_bar=True)
+        # 同时记录所有参数组的学习率
+        if self.trainer and self.trainer.optimizers:
+            for idx, group in enumerate(self.trainer.optimizers[0].param_groups):
+                lr = group.get('lr', None)
+                if lr is not None:
+                    if len(self.trainer.optimizers[0].param_groups) == 1:
+                        self.log("lr", lr, prog_bar=True)
+                    else:
+                        self.log(f"lr_group{idx}", lr, prog_bar=True)
         return loss
     
     def validation_step(self, batch):
@@ -298,10 +305,26 @@ class DinoV3ClassifierTrainer(L.LightningModule):
     
     def configure_optimizers(self):
         """
-        configure_optimizers is called at the beginning of the training.
+        Use regular expressions to set different learning rates for backbone and head, implemented concisely.
         """
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config["lr"])
-        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.config["max_epochs"])
+        lr = self.config.get("lr", 1e-3)
+        param_groups_cfg = self.config.get("param_groups", [])
+        params = list(self.model.named_parameters())
+        used = set()
+        optimizer_grouped_params = []
+        for group in param_groups_cfg:
+            regex = group.get("regex", ".*")
+            group_lr = group.get("lr", lr)
+            pat = re.compile(regex)
+            group_params = [p for n, p in params if pat.search(n) and n not in used]
+            used.update([n for n, p in params if pat.search(n)])
+            if group_params:
+                optimizer_grouped_params.append({"params": group_params, "lr": group_lr})
+        remaining_params = [p for n, p in params if n not in used]
+        if remaining_params:
+            optimizer_grouped_params.append({"params": remaining_params, "lr": lr})
+        optimizer = torch.optim.Adam(optimizer_grouped_params)
+        # Linear learning rate scheduler
         scheduler = torch.optim.lr_scheduler.LinearLR(
             optimizer,
             start_factor=1.0,
@@ -419,6 +442,8 @@ def main(config_dict):
         crop_scale_factor=config_dict['crop_scale_factor'],
         batch_size=config_dict['batch_size'],
         num_workers=config_dict['num_workers'],
+        pad_mode=config_dict.get('pad_mode', "constant"),
+        pad_color=config_dict.get('pad_color', (114, 114, 114)),
     )
     # 打印不同类别样本数量（训练集和验证集）
     def print_category_sample_counts(dataset, dataset_name="train"):
@@ -451,6 +476,10 @@ def main(config_dict):
     )
     model = DinoV3ClassifierTrainer(dinov3_classifier, config_dict)
     print(model.model)
+    # 打印模型的全部参数名称
+    print("model parameters names:")
+    for name, param in model.model.named_parameters():
+        print(name)
     data = ClassificationData(
         train_loader,
         val_loader,

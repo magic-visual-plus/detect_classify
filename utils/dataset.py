@@ -33,6 +33,8 @@ class COCOClassificationDataset(Dataset):
                  transform=None,
                  min_bbox_area=0,
                  crop_scale_factor=1.0,
+                 pad_mode="constant",
+                 pad_color=(114, 114, 114),
                  target_categories=None):
         """
         Args:
@@ -46,6 +48,8 @@ class COCOClassificationDataset(Dataset):
         self.transform = transform
         self.min_bbox_area = min_bbox_area
         self.crop_scale_factor = crop_scale_factor
+        self.pad_mode = pad_mode
+        self.pad_color = pad_color
         # 加载COCO标注
         self.coco = COCO(ann_file)
 
@@ -105,7 +109,7 @@ class COCOClassificationDataset(Dataset):
         x2 = min(img_width, x + w)
         y2 = min(img_height, y + h)
 
-        cropped_image = crop_adaptive_square(image, x, y, w, h, scale_factor=self.crop_scale_factor)
+        cropped_image = crop_adaptive_square(image, x, y, w, h, scale_factor=self.crop_scale_factor, pad_mode=self.pad_mode, pad_color=self.pad_color)
 
         label = self.cat_id_to_label[category_id]
 
@@ -124,7 +128,7 @@ class COCOClassificationDataset(Dataset):
 
         return cropped_image, label, info
 
-    def export_to_folder(self, export_dir, img_format="jpg", exist_ok=False, scale_factor=1.0):
+    def export_to_folder(self, export_dir, img_format="jpg", exist_ok=False, scale_factor=1.0, pad_mode="constant", pad_color=(114, 114, 114)):
         """
         Export the dataset as a folder-structured classification dataset,
         with each class in a subfolder and images cropped to the target object.
@@ -178,7 +182,7 @@ class COCOClassificationDataset(Dataset):
 
             bbox = ann['bbox']
             x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-            cropped_image = crop_adaptive_square(image, x, y, w, h, scale_factor=scale_factor)
+            cropped_image = crop_adaptive_square(image, x, y, w, h,  scale_factor=scale_factor, pad_mode=pad_mode, pad_color=pad_color)
 
             # Compose filename: imageid_annid_source.suffix (source is optional, suffix is always lower case)
             source = ann.get('source', None)

@@ -15,7 +15,9 @@ def create_coco_dataloader(root_dir,
                           target_categories=None,
                           num_workers=4,
                           pin_memory=True,
-                          shuffle=None):
+                          shuffle=None,
+                          pad_mode="constant",
+                          pad_color=(114, 114, 114)):
     """
     创建COCO分类任务的DataLoader
     
@@ -30,6 +32,8 @@ def create_coco_dataloader(root_dir,
         num_workers: 数据加载的工作进程数
         pin_memory: 是否使用pin_memory
         shuffle: 是否打乱数据, None时自动根据is_train决定
+        pad_mode: 越界填充方式 ("constant", "edge", None)
+        pad_color: 常数填充的颜色 (R, G, B)
     """
     if shuffle is None:
         shuffle = is_train
@@ -40,7 +44,9 @@ def create_coco_dataloader(root_dir,
         transform=transform,
         min_bbox_area=min_bbox_area,
         crop_scale_factor=crop_scale_factor,
-        target_categories=target_categories
+        target_categories=target_categories,
+        pad_mode=pad_mode,
+        pad_color=pad_color
     )
     
     dataloader = DataLoader(
@@ -142,7 +148,9 @@ def create_train_val_dataloaders(train_root,
                                 min_bbox_area=100,
                                 crop_scale_factor=1.0,
                                 target_categories=None,
-                                num_workers=4):
+                                num_workers=4,
+                                pad_mode="constant",
+                                pad_color=(114, 114, 114)):
     """
     同时创建训练和验证数据加载器
     """
@@ -155,7 +163,9 @@ def create_train_val_dataloaders(train_root,
         crop_scale_factor=crop_scale_factor,
         is_train=True,
         target_categories=target_categories,
-        num_workers=num_workers
+        num_workers=num_workers,
+        pad_mode=pad_mode,
+        pad_color=pad_color
     )
     
     val_loader, val_dataset = create_coco_dataloader(
@@ -167,7 +177,9 @@ def create_train_val_dataloaders(train_root,
         crop_scale_factor=crop_scale_factor,
         is_train=False,
         target_categories=target_categories,
-        num_workers=num_workers
+        num_workers=num_workers,
+        pad_mode=pad_mode,
+        pad_color=pad_color
     )
     
     return train_loader, train_dataset, val_loader, val_dataset

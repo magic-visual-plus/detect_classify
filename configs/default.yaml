@@ -2,12 +2,17 @@
 
 lr: 0.001 # 学习率
 lr_end_factor: 0.01 # 学习率结束因子
+freeze_backbone: False  # 是否冻结骨干网络
+# 参数组配置
+param_groups:
+  - regex: "backbone.*"   # 匹配所有backbone相关参数
+    lr: 0.00001
+  - regex: "head.*"       # 匹配所有head相关参数
+    lr: 0.001
 
-# 训练参数
 max_epochs: 200 # 最大训练轮数
 batch_size: 64 # 批次大小
 num_workers: 12 # 数据加载线程数
-freeze_backbone: False  # 是否冻结骨干网络
 
 # 数据集配置
 dataset:
@@ -21,16 +26,19 @@ target_category_names: ["褶皱（重度）"]
 iou_threshold: 0.5
 merge_coco_dict:
   # 缺陷: ['其他', '划伤', '压痕', '异物外漏', '折痕', '抛线', '拼接间隙', '水渍', '破损', '碰伤', '红标签', '线头', '脏污', '褶皱(T型)', '褶皱（重度）', '重跳针']
-  缺陷: ['褶皱（重度）']
-  背景: ["背景"]
+  NG: ['褶皱（重度）']
+  OK: ["背景"]
 
 # 数据预处理参数
-min_bbox_area: 0
-crop_scale_factor: 1.5
+min_bbox_area: 0  # 最小标注框面积
+crop_scale_factor: 1.5  # 裁剪范围因子
 
 resize:
   width: 224
   height: 224
+
+pad_mode: "constant"  # 越界填充方式 ("constant", "edge", None)
+pad_color: "0,0,0"  # 常数填充的颜色 (R, G, B)
 
 # 模型配置
 backbone_weights: "/root/autodl-tmp/seat_model/dinov3/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth"
