@@ -136,7 +136,6 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         
         # 计算PR曲线
         precision, recall, thresholds = precision_recall_curve(y_true, y_scores)
-        
         # 计算AUC-PR (Average Precision)
         auc_pr = average_precision_score(y_true, y_scores)
         
@@ -357,18 +356,7 @@ def get_model(config_dict):
         freeze_backbone=True
     )
 
-def main(config_dict):
-    """
-    主训练函数
-    """
-    backbone_weights = config_dict['backbone_weights']
-    name_split_len = 2 if 'vit' in backbone_weights else 3
-    backbone_name = "_".join(backbone_weights.split("/")[-1].split("_")[:name_split_len])
-    print(f"backbone name: {backbone_name}")
-    print(f"backbone weights: {backbone_weights}")
-
-    # 对coco_file 进行前处理
-    def post_coco_file(coco_file, new_coco_file=None) -> dict:
+def post_coco_file(coco_file, new_coco_file, config_dict) -> dict:
         coco_data = utils.dataset.load_coco_file(coco_file)
         coco_data = utils.dataset.filter_and_remap_coco_categories(
             coco_data, 
@@ -389,8 +377,21 @@ def main(config_dict):
 
         if new_coco_file:
             utils.dataset.save_coco_file(coco_data, new_coco_file)
+
         return coco_data
 
+
+def main(config_dict):
+    """
+    主训练函数
+    """
+    backbone_weights = config_dict['backbone_weights']
+    name_split_len = 2 if 'vit' in backbone_weights else 3
+    backbone_name = "_".join(backbone_weights.split("/")[-1].split("_")[:name_split_len])
+    print(f"backbone name: {backbone_name}")
+    print(f"backbone weights: {backbone_weights}")
+
+    # 对coco_file 进行前处理
     train_coco_ann = config_dict['dataset']['train_ann'] + ".tmp"
     valid_coco_ann = config_dict['dataset']['val_ann'] + ".tmp"
     try:
@@ -401,8 +402,8 @@ def main(config_dict):
         os.remove(valid_coco_ann)
     except FileNotFoundError:
         pass
-    train_coco_data = post_coco_file(config_dict['dataset']['train_ann'], train_coco_ann)
-    valid_coco_data = post_coco_file(config_dict['dataset']['val_ann'], valid_coco_ann)
+    train_coco_data = post_coco_file(config_dict['dataset']['train_ann'], train_coco_ann, config_dict)
+    valid_coco_data = post_coco_file(config_dict['dataset']['val_ann'], valid_coco_ann, config_dict)
 
     # print(train_coco_data)
     # print(valid_coco_data)
@@ -437,11 +438,16 @@ def main(config_dict):
     print(f"num_classes: {num_classes}")
     config_dict['num_classes'] = num_classes
     config_dict['class_names'] = train_dataset.cat_names
+    config_dict['freeze_backbone'] = config_dict.get('freeze_backbone', True)
+    if config_dict['freeze_backbone'] is False:
+        print("freeze_backbone is False, unfreeze the backbone")
+        print(type(config_dict['freeze_backbone']))
+
     dinov3_classifier = DinoV3Classifier(
         backbone_name=backbone_name,
         backbone_weights=backbone_weights,
         num_classes=num_classes,
-        freeze_backbone=True
+        freeze_backbone=config_dict['freeze_backbone'],
     )
     model = DinoV3ClassifierTrainer(dinov3_classifier, config_dict)
     print(model.model)

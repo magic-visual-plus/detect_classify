@@ -31,7 +31,7 @@ class COCOClassificationDataset(Dataset):
                  root_dir, 
                  ann_file, 
                  transform=None,
-                 min_bbox_area=400,
+                 min_bbox_area=0,
                  crop_scale_factor=1.0,
                  target_categories=None):
         """
@@ -126,8 +126,9 @@ class COCOClassificationDataset(Dataset):
 
     def export_to_folder(self, export_dir, img_format="jpg", exist_ok=False, scale_factor=1.0):
         """
-        Export the dataset as a folder-structured classification dataset, 
+        Export the dataset as a folder-structured classification dataset,
         with each class in a subfolder and images cropped to the target object.
+        The exported image filename will include the annotation source if available.
         Args:
             export_dir (str): Root directory to export to.
             img_format (str): Image format for export (e.g., 'jpg', 'png').
@@ -179,8 +180,12 @@ class COCOClassificationDataset(Dataset):
             x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
             cropped_image = crop_adaptive_square(image, x, y, w, h, scale_factor=scale_factor)
 
-            # File name: imageid_annid.suffix (suffix is always lower case)
-            out_name = f"{ann['image_id']}_{ann['id']}.{img_format_lower}"
+            # Compose filename: imageid_annid_source.suffix (source is optional, suffix is always lower case)
+            source = ann.get('source', None)
+            if source is not None and str(source).strip() != "":
+                out_name = f"{ann['image_id']}_{idx}_{source}.{img_format_lower}"
+            else:
+                out_name = f"{ann['image_id']}_{idx}.{img_format_lower}"
             out_path = os.path.join(export_dir, class_name, out_name)
             cropped_image.save(out_path, format=pil_format)
 

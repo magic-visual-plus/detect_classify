@@ -1,12 +1,13 @@
 # 默认训练配置
-# 学习率
-lr: 0.000001
-lr_end_factor: 1.0
+
+lr: 0.001 # 学习率
+lr_end_factor: 0.01 # 学习率结束因子
 
 # 训练参数
-max_epochs: 100
-batch_size: 64
-num_workers: 12
+max_epochs: 200 # 最大训练轮数
+batch_size: 64 # 批次大小
+num_workers: 12 # 数据加载线程数
+freeze_backbone: False  # 是否冻结骨干网络
 
 # 数据集配置
 dataset:
@@ -15,17 +16,17 @@ dataset:
   train_ann: "/root/autodl-tmp/seat_dataset/chengdu_customer/_classification.coco.json"
   val_ann: "/root/autodl-tmp/seat_dataset/chengdu_valid/_classification.coco.json"
 # target_category_names: ["褶皱（重度）", "划伤"]
-# target_category_names: ["褶皱（重度）"]
-target_category_names: ['其他', '划伤', '压痕', '异物外漏', '折痕', '抛线', '拼接间隙', '水渍', '破损', '碰伤', '红标签', '线头', '脏污', '褶皱(T型)', '褶皱（重度）', '重跳针']
+target_category_names: ["褶皱（重度）"]
+# target_category_names: ['其他', '划伤', '压痕', '异物外漏', '折痕', '抛线', '拼接间隙', '水渍', '破损', '碰伤', '红标签', '线头', '脏污', '褶皱(T型)', '褶皱（重度）', '重跳针']
 iou_threshold: 0.5
 merge_coco_dict:
-  缺陷: ['其他', '划伤', '压痕', '异物外漏', '折痕', '抛线', '拼接间隙', '水渍', '破损', '碰伤', '红标签', '线头', '脏污', '褶皱(T型)', '褶皱（重度）', '重跳针']
-  # 缺陷: ['褶皱（重度）']
+  # 缺陷: ['其他', '划伤', '压痕', '异物外漏', '折痕', '抛线', '拼接间隙', '水渍', '破损', '碰伤', '红标签', '线头', '脏污', '褶皱(T型)', '褶皱（重度）', '重跳针']
+  缺陷: ['褶皱（重度）']
   背景: ["背景"]
 
 # 数据预处理参数
 min_bbox_area: 0
-crop_scale_factor: 2.0
+crop_scale_factor: 1.5
 
 resize:
   width: 224

@@ -6,7 +6,8 @@ from tqdm import tqdm
 from collections import Counter
 import pandas as pd
 from hq_det.models.dino import hq_dino
-
+from trainer import post_coco_file
+from utils.dataset import COCOClassificationDataset
 
 def load_coco_data(path):
     with open(path, "r") as f:
@@ -229,14 +230,18 @@ def merge_coco_categories(coco_data, merge_dict):
     coco_data['categories'] = new_categories
     return coco_data
 
+
+
 if __name__ == "__main__":
     model_path = sys.argv[1]
     input_path = sys.argv[2]
+    output_path = sys.argv[3] if len(sys.argv) > 3 else None
+
     coco_file = os.path.join(input_path, "_annotations.coco.json")
     model = hq_dino.HQDINO(model=model_path)
     model.eval()
     model.to("cuda:0")
-    coco_output = predict_coco(coco_file, model, input_path, confidence=0.3, max_size=1536)
+    coco_output = predict_coco(coco_file, model, input_path, confidence=0.2, max_size=1536)
     # with open("predict_coco.json", "w", encoding="utf-8") as f:
     #     json.dump(coco_output, f, ensure_ascii=False, indent=2)
     # coco_output = correct_predicted_categories(coco_output)
@@ -247,8 +252,32 @@ if __name__ == "__main__":
     #         "背景": ["背景"]
     #     }
     # )
+    if output_path:
+        os.makedirs(output_path, exist_ok=True)
+        save_path = os.path.join(output_path, "_classification.coco.json")
+    else:
+        save_path = os.path.join(input_path, "_classification.coco.json")
     save_path = os.path.join(input_path, "_classification.coco.json")
     if os.path.exists(save_path):
         os.remove(save_path)
     with open(save_path, "w", encoding="utf-8") as f:
         json.dump(coco_output, f, ensure_ascii=False, indent=2)
+    if output_path:
+        config_dict = {
+            "target_category_names":["褶皱（重度）"],   # 选择需要的类别
+            "iou_threshold": 0.5,  # 修正预测框的类别时，使用的IOU阈值
+            "merge_coco_dict": {
+                "褶皱（重度）": ["褶皱（重度）"],  # 合并类别
+                "背景": ["背景"]  # 背景类别
+            }
+        }
+        last_coco_save_path = os.path.join(output_path, "_classification.last.coco.json")
+        post_coco_file(save_path, last_coco_save_path, config_dict)
+        print(f"save to {last_coco_save_path}")
+        dataset = COCOClassificationDataset(
+            root_dir=input_path,
+            ann_file=last_coco_save_path,
+            min_bbox_area=0,
+        )
+        dataset.export_to_folder(output_path, img_format="jpg", exist_ok=True, scale_factor=1.5)
+        print(f"export to {output_path}")
