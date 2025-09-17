@@ -386,10 +386,7 @@ def post_coco_file(coco_file, new_coco_file, config_dict) -> dict:
             coco_data, 
             config_dict['target_category_names']
         )
-        # coco_data = utils.dataset.filter_coco_by_source_category(
-        #     coco_data,
-        #     'gt'
-        # )
+        
         coco_data = utils.dataset.correct_predicted_categories(
             coco_data, 
             iou_threshold=config_dict['iou_threshold']
@@ -398,6 +395,14 @@ def post_coco_file(coco_file, new_coco_file, config_dict) -> dict:
             coco_data,
             merge_dict=config_dict['merge_coco_dict']
         )
+        
+        # 只保留预测(predict)来源的标注
+        only_keep_predict = config_dict.get('only_keep_predict', False)
+        if only_keep_predict:
+            coco_data = utils.dataset.filter_coco_by_source_category(
+                coco_data,
+                'predict'
+            )
 
         if new_coco_file:
             utils.dataset.save_coco_file(coco_data, new_coco_file)
@@ -431,21 +436,30 @@ def main(config_dict):
 
     # print(train_coco_data)
     # print(valid_coco_data)
-
-    train_loader, train_dataset, val_loader, val_dataset = utils.dataloader.create_train_val_dataloaders(
-        train_root=config_dict['dataset']['train_path'],
-        train_ann=train_coco_ann,
-        val_root=config_dict['dataset']['val_path'],
-        val_ann=valid_coco_ann,
-        train_transform=utils.transforms.get_default_transform(size=(config_dict['resize']['width'], config_dict['resize']['height'])),
-        val_transform=utils.transforms.get_default_transform(is_train=False, size=(config_dict['resize']['width'], config_dict['resize']['height'])),
-        min_bbox_area=config_dict['min_bbox_area'],
-        crop_scale_factor=config_dict['crop_scale_factor'],
-        batch_size=config_dict['batch_size'],
-        num_workers=config_dict['num_workers'],
-        pad_mode=config_dict.get('pad_mode', "constant"),
-        pad_color=config_dict.get('pad_color', (114, 114, 114)),
-    )
+    # 创建数据加载器
+    dataloader_kwargs = {
+        "train_root": config_dict['dataset']['train_path'],
+        "train_ann": train_coco_ann,
+        "val_root": config_dict['dataset']['val_path'],
+        "val_ann": valid_coco_ann,
+        "train_transform": utils.transforms.get_default_transform(size=(config_dict['resize']['width'], config_dict['resize']['height'])),
+        "val_transform": utils.transforms.get_default_transform(is_train=False, size=(config_dict['resize']['width'], config_dict['resize']['height'])),
+        "min_bbox_area": config_dict['min_bbox_area'],
+        "crop_scale_factor": config_dict['crop_scale_factor'],
+        "batch_size": config_dict['batch_size'],
+        "num_workers": config_dict['num_workers'],
+        "pad_mode": config_dict.get('pad_mode', "constant"),
+        "pad_color": config_dict.get('pad_color', (114, 114, 114)),
+    }
+    if config_dict.get('re_split', False):
+        create_train_val_dataloaders_func = utils.dataloader.create_merged_dataloaders
+        dataloader_kwargs["train_ratio"] = config_dict.get("train_ratio", 0.8)
+        print('=' * 50)
+        print("Resplitting the dataset")
+        print('=' * 50)
+    else:
+        create_train_val_dataloaders_func = utils.dataloader.create_train_val_dataloaders
+    train_loader, train_dataset, val_loader, val_dataset = create_train_val_dataloaders_func(**dataloader_kwargs)
     # 打印不同类别样本数量（训练集和验证集）
     def print_category_sample_counts(dataset, dataset_name="train"):
         cat_id_list = []
@@ -454,7 +468,10 @@ def main(config_dict):
         counter = Counter(cat_id_list)
         print(f"\n{dataset_name} category sample counts:")
         for idx, name in enumerate(dataset.cat_names):
-            print(f"  {name}: {counter.get(idx, 0)}")
+            # 使用cat_id_to_label映射将category_id转换为标签索引
+            cat_id = dataset.cat_ids[idx]
+            count = counter.get(cat_id, 0)
+            print(f"  {name}: {count}")
 
     print_category_sample_counts(train_dataset, "Train")
     print_category_sample_counts(val_dataset, "Val")

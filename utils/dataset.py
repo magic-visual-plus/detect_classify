@@ -317,27 +317,30 @@ def _crop_with_edge_padding(image, left, top, target_w, target_h):
 
 def filter_coco_by_source_category(coco_data, source_values):
     """
-    从COCO数据中筛选出annotations中source为指定值的标注和相关图片。
+    只筛选出所有source为指定值（如"predict"）的标注和相关图片。
 
     Args:
         coco_data: COCO格式的字典数据
-        source_values:
+        source_values: 可以是字符串或字符串列表
 
     Returns:
-        new_coco_data:
+        new_coco_data: 只包含指定source的标注和相关图片的COCO数据
     """
+    # 兼容单个字符串
+    if isinstance(source_values, str):
+        source_values = [source_values]
 
-    # 筛选标注
+    # 只保留source为指定值的标注
     filtered_annotations = [
         ann for ann in coco_data['annotations']
-        if 'source' in ann and ann['source'] in source_values
+        if ann.get('source', None) in source_values
     ]
 
-    # 筛选相关图片
+    # 只保留有标注的图片
     used_image_ids = set(ann['image_id'] for ann in filtered_annotations)
     filtered_images = [img for img in coco_data['images'] if img['id'] in used_image_ids]
 
-    # 保留所有类别
+    # 类别全部保留
     filtered_categories = copy.deepcopy(coco_data['categories'])
 
     # 构建新的COCO数据
