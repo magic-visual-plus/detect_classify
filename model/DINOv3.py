@@ -7,25 +7,23 @@ import utils.dataset
 from typing import List
 
 class DinoV3Classifier(nn.Module):
-    def __init__(self, backbone_name, num_classes, backbone_weights=None, check_point_path=None, REPO_DIR=None, freeze_backbone=True):
+    def __init__(self, backbone_name, num_classes, backbone_weights=None, check_point_path=None, REPO_DIR=None, freeze_backbone=True, unfrozen_names=[]):
         super().__init__()
         self.num_classes = num_classes
         if backbone_weights:
             self.backbone = self.load_backbone(backbone_name, backbone_weights, REPO_DIR=REPO_DIR)
         else:
             self.backbone = self.load_backbone(backbone_name, REPO_DIR=REPO_DIR)
-        if num_classes == 2:
-            self.head = nn.Sequential(
-                nn.Dropout(p=0.2),
-                nn.Linear(self.backbone.embed_dim * 2, 1)
-            )
-        else:
-            self.head = nn.Sequential(
-                nn.Dropout(p=0.2),
-                nn.Linear(self.backbone.embed_dim * 2, num_classes)
-            )
+        out_dim = 1 if num_classes == 2 else num_classes
+        self.head = nn.Sequential(
+            nn.Dropout(p=0.5),
+            nn.LazyLinear(20),
+            nn.ReLU(),
+            nn.Dropout(p=0.5),
+            nn.LazyLinear(out_dim)
+        )
         if freeze_backbone:
-            self.freeze_backbone()
+            self.freeze_backbone(unfrozen_names)
 
         if check_point_path:
             checkpoint = torch.load(check_point_path, map_location="cpu")
@@ -44,6 +42,7 @@ class DinoV3Classifier(nn.Module):
 
             self.load_state_dict(state_dict)
             print(f"Successfully loaded model weights from: {check_point_path}")
+        
 
         
     def load_backbone(self, backbone_name, weights=None, REPO_DIR=None):
@@ -57,9 +56,24 @@ class DinoV3Classifier(nn.Module):
         
         return backbone
 
-    def freeze_backbone(self):
-        for param in self.backbone.parameters():
-            param.requires_grad = False
+    def freeze_backbone(self, unfrozen_names):
+        for name, param in self.backbone.named_parameters():
+            if any(name.startswith(unfrozen_name) for unfrozen_name in unfrozen_names):
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+    
+    def forward_detection_and_classification(self, x, detection_feature):
+        """
+        x: [batch_size, 3, H, W]
+        detection_feature: [batch_size, 256, H/14, W/14], feature map output from the detection model, corresponding to the original image region
+        """
+        x = self.backbone.forward_features(x)
+        cls_token = x["x_norm_clstoken"]
+        patch_tokens = x["x_norm_patchtokens"]
+        linear_input = torch.cat(
+            [cls_token, patch_tokens.mean(dim=1)], dim=1)
+        return linear_input
 
     def forward(self, x):
         x = self.backbone.forward_features(x)
@@ -75,7 +89,7 @@ class DinoV3Classifier(nn.Module):
         logits = self.head(linear_input)
         return logits
 
-    def predict(self, img, bboxs, scale_factor=1.0, pad_mode="constant", pad_color=(114, 114, 114), transformer=None) -> List[dict]:
+    def predict(self, img, bboxs, scale_factor=1.0, pad_mode="constant", pad_color=(0, 0, 0), transformer=None) -> List[dict]:
         results = []
         cropped_images = []
         for bbox in bboxs:

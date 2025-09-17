@@ -376,7 +376,8 @@ def get_model(config_dict):
         num_classes=config_dict['num_classes'],
         check_point_path=config_dict.get('check_point_path', None),
         REPO_DIR=config_dict['REPO_DIR'],
-        freeze_backbone=True
+        freeze_backbone=config_dict['freeze_backbone'],
+        unfrozen_names=config_dict.get('unfrozen_names', [])
     )
 
 def post_coco_file(coco_file, new_coco_file, config_dict) -> dict:
@@ -473,13 +474,14 @@ def main(config_dict):
         backbone_weights=backbone_weights,
         num_classes=num_classes,
         freeze_backbone=config_dict['freeze_backbone'],
+        unfrozen_names=config_dict.get('unfrozen_names', [])
     )
     model = DinoV3ClassifierTrainer(dinov3_classifier, config_dict)
     print(model.model)
     # 打印模型的全部参数名称
     print("model parameters names:")
     for name, param in model.model.named_parameters():
-        print(name)
+        print(name, param.requires_grad)
     data = ClassificationData(
         train_loader,
         val_loader,
