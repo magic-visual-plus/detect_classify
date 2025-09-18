@@ -205,16 +205,22 @@ def main(config_dict):
         num_workers=config_dict['num_workers']
     )
     # 动态获取实际类别数量
-    actual_num_classes = len(train_dataset.classes)
-    print(f"实际类别数量: {actual_num_classes}")
-    print(f"类别列表: {train_dataset.classes}")
-    
-    # 验证训练集和验证集的类别是否一致
     if isinstance(dataset_config, dict) and 'train' in dataset_config and 'val' in dataset_config:
+        # 使用字典配置时，直接从训练集获取类别信息
+        actual_num_classes = len(train_dataset.classes)
+        print(f"实际类别数量: {actual_num_classes}")
+        print(f"类别列表: {train_dataset.classes}")
+        
+        # 验证训练集和验证集的类别是否一致
         if train_dataset.classes != val_dataset.classes:
             print("警告：训练集和验证集的类别不一致！")
             print(f"训练集类别: {train_dataset.classes}")
             print(f"验证集类别: {val_dataset.classes}")
+    else:
+        # 使用单个路径时，从原始数据集获取类别信息
+        actual_num_classes = len(dataset.classes)
+        print(f"实际类别数量: {actual_num_classes}")
+        print(f"类别列表: {dataset.classes}")
     
     dinov3_classifier = DinoV3Classifier(
         backbone_name=backbone_name,
@@ -274,13 +280,13 @@ if __name__ == "__main__":
         'num_workers': 12, 
         'num_classes': 2, 
         # 方式1：使用单个数据集路径，自动划分训练集和验证集
-        # 'dataset': "/root/褶皱样本",
+        'dataset': "/root/褶皱样本predict",
         
         # 方式2：提供训练集和验证集路径，不进行自动划分
-        'dataset': {
-            'train': "/root/褶皱样本train",
-            'val': "/root/褶皱样本valid"
-        },
+        # 'dataset': {
+        #     'train': "/root/褶皱样本train",
+        #     'val': "/root/褶皱样本valid"
+        # },
         
         'min_bbox_area': 0, 
         'backbone_weights': '/root/autodl-tmp/seat_model/dinov3/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth'

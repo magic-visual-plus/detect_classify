@@ -7,21 +7,25 @@ import utils.dataset
 from typing import List
 
 class DinoV3Classifier(nn.Module):
-    def __init__(self, backbone_name, num_classes, backbone_weights=None, check_point_path=None, REPO_DIR=None, freeze_backbone=True, unfrozen_names=[]):
+    def __init__(self, 
+        backbone_name, 
+        num_classes, 
+        backbone_weights=None, 
+        check_point_path=None, 
+        REPO_DIR=None, 
+        freeze_backbone=True, 
+        unfrozen_names=[],
+        dropout_p=0.5
+    ):
         super().__init__()
         self.num_classes = num_classes
+        self.dropout_p = dropout_p
         if backbone_weights:
             self.backbone = self.load_backbone(backbone_name, backbone_weights, REPO_DIR=REPO_DIR)
         else:
             self.backbone = self.load_backbone(backbone_name, REPO_DIR=REPO_DIR)
         out_dim = 1 if num_classes == 2 else num_classes
-        self.head = nn.Sequential(
-            nn.Dropout(p=0.5),
-            nn.LazyLinear(20),
-            nn.ReLU(),
-            nn.Dropout(p=0.5),
-            nn.LazyLinear(out_dim)
-        )
+        self.head = self.get_head(out_dim) 
         if freeze_backbone:
             self.freeze_backbone(unfrozen_names)
 
@@ -43,7 +47,11 @@ class DinoV3Classifier(nn.Module):
             self.load_state_dict(state_dict)
             print(f"Successfully loaded model weights from: {check_point_path}")
         
-
+    def get_head(self, out_dim):
+        return nn.Sequential(
+            nn.Dropout(p=self.dropout_p),
+            nn.Linear(self.backbone.embed_dim * 2, out_dim)
+        )
         
     def load_backbone(self, backbone_name, weights=None, REPO_DIR=None):
         # REPO_DIR = os.path.dirname(os.path.dirname(dinov3.__file__))
@@ -63,19 +71,9 @@ class DinoV3Classifier(nn.Module):
             else:
                 param.requires_grad = False
     
-    def forward_detection_and_classification(self, x, detection_feature):
-        """
-        x: [batch_size, 3, H, W]
-        detection_feature: [batch_size, 256, H/14, W/14], feature map output from the detection model, corresponding to the original image region
-        """
-        x = self.backbone.forward_features(x)
-        cls_token = x["x_norm_clstoken"]
-        patch_tokens = x["x_norm_patchtokens"]
-        linear_input = torch.cat(
-            [cls_token, patch_tokens.mean(dim=1)], dim=1)
-        return linear_input
-
-    def forward(self, x):
+    def forward(self, batch):
+        images, labels, info = batch
+        x = images
         x = self.backbone.forward_features(x)
         cls_token = x["x_norm_clstoken"]
         patch_tokens = x["x_norm_patchtokens"]
@@ -130,4 +128,35 @@ class DinoV3Classifier(nn.Module):
             })
         return results
 
-        
+
+class DinoV3ClassifierWithDetectionFeature(DinoV3Classifier):
+
+    def get_head(self, out_dim):
+        return nn.Sequential(
+            nn.Dropout(p=self.dropout_p),
+            nn.Linear(self.backbone.embed_dim * 2 + 4 * 256, out_dim)
+        )
+
+    def forward(self, batch):
+        x, labels, info = batch
+        detection_feature = info['detection_feature']
+        feat1 = detection_feature[:,0,:]
+        feat2 = detection_feature[:,1,:]
+        feat3 = detection_feature[:,2,:]
+        feat4 = detection_feature[:,3,:]
+        x = self.backbone.forward_features(x)
+        cls_token = x["x_norm_clstoken"]
+        patch_tokens = x["x_norm_patchtokens"]
+        linear_input = torch.cat(
+            [
+                cls_token,
+                patch_tokens.mean(dim=1),
+                feat1,
+                feat2,
+                feat3,
+                feat4,
+            ],
+            dim=1,
+        )
+        logits = self.head(linear_input)
+        return logits

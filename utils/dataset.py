@@ -7,6 +7,7 @@ from pycocotools.coco import COCO
 from PIL import Image
 import numpy as np
 from torchvision import transforms
+from utils.hq_dino_feature_extractor import DinoFeatureExtractor
 
 
 __all__ = [
@@ -112,10 +113,24 @@ class COCOClassificationDataset(Dataset):
         cropped_image = crop_adaptive_square(image, x, y, w, h, scale_factor=self.crop_scale_factor, pad_mode=self.pad_mode, pad_color=self.pad_color)
 
         label = self.cat_id_to_label[category_id]
-
+        if ann.get('feat_path', None) is not None:
+            feat_path = ann['feat_path']
+            feats = DinoFeatureExtractor.load_feats_from_npz(feat_path)
+            pooled_feats = []
+            for feat in feats:
+                feat_width, feat_height = feat.shape[1], feat.shape[2]
+                feat_x1 = int(x * feat_width / img_width)
+                feat_y1 = int(y * feat_height / img_height)
+                feat_x2 = min(int(1 + x2 * feat_width / img_width), feat_width)  
+                feat_y2 = min(int(1 + y2 * feat_height / img_height), feat_height)  
+                crop_feat = feat[:, feat_y1:feat_y2, feat_x1:feat_x2]
+                if not isinstance(crop_feat, torch.Tensor):
+                    crop_feat = torch.from_numpy(crop_feat)
+                pooled_feat = crop_feat.amax(dim=(1,2))
+                pooled_feats.append(pooled_feat) 
+        pooled_feats = torch.stack(pooled_feats, dim=0)
         if self.transform:
             cropped_image = self.transform(cropped_image)
-
         info = {
             'image_id': ann['image_id'],
             'annotation_id': ann['id'],
@@ -123,7 +138,8 @@ class COCOClassificationDataset(Dataset):
             'bbox': bbox,
             'original_size': (img_width, img_height),
             'image_name': img_info['file_name'],
-            'annotation_source': ann.get('source', None)
+            'annotation_source': ann.get('source', None),
+            'detection_feature': pooled_feats
         }
 
         return cropped_image, label, info

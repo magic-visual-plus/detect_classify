@@ -13,7 +13,7 @@ import numpy as np
 from sklearn.metrics import precision_recall_curve, average_precision_score, roc_curve, auc
 import matplotlib.pyplot as plt
 
-from model.DINOv3 import DinoV3Classifier
+from model.DINOv3 import DinoV3Classifier, DinoV3ClassifierWithDetectionFeature
 from torchmetrics.classification import Accuracy, Precision, Recall, ConfusionMatrix
 import utils
 import utils.dataset
@@ -65,7 +65,7 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         training_step is called at the end of each training epoch.
         """
         images, labels, info = batch
-        outputs = self.model(images)
+        outputs = self.model(batch)
         
         if self.num_classes == 2:
             labels_float = labels.float().unsqueeze(1)  # [batch_size, 1]
@@ -97,7 +97,7 @@ class DinoV3ClassifierTrainer(L.LightningModule):
         validation_step is called at the end of each validation epoch.
         """
         images, labels, info = batch
-        outputs = self.model(images)
+        outputs = self.model(batch)
         
         if self.num_classes == 2:
             labels_float = labels.float().unsqueeze(1)  # [batch_size, 1]
@@ -375,8 +375,8 @@ def get_model(config_dict):
         backbone_weights=backbone_weights,
         num_classes=config_dict['num_classes'],
         check_point_path=config_dict.get('check_point_path', None),
-        REPO_DIR=config_dict['REPO_DIR'],
-        freeze_backbone=config_dict['freeze_backbone'],
+        REPO_DIR=config_dict.get('REPO_DIR', '/root/dinov3'),
+        freeze_backbone=config_dict.get('freeze_backbone', True),
         unfrozen_names=config_dict.get('unfrozen_names', [])
     )
 
@@ -485,13 +485,18 @@ def main(config_dict):
     if config_dict['freeze_backbone'] is False:
         print("freeze_backbone is False, unfreeze the backbone")
         print(type(config_dict['freeze_backbone']))
+    if config_dict.get('with_detection_feature', False):
+        model_cls = DinoV3ClassifierWithDetectionFeature
+    else:
+        model_cls = DinoV3Classifier
 
-    dinov3_classifier = DinoV3Classifier(
+    dinov3_classifier = model_cls(
         backbone_name=backbone_name,
         backbone_weights=backbone_weights,
         num_classes=num_classes,
         freeze_backbone=config_dict['freeze_backbone'],
-        unfrozen_names=config_dict.get('unfrozen_names', [])
+        unfrozen_names=config_dict.get('unfrozen_names', []),
+        dropout_p=config_dict.get('dropout_p', 0.2)
     )
     model = DinoV3ClassifierTrainer(dinov3_classifier, config_dict)
     print(model.model)
@@ -523,14 +528,14 @@ def main(config_dict):
         save_last=False
     )
     callbacks.append(f1_checkpoint)
-    acc_checkpoint = ModelCheckpoint(
-        monitor="val_acc_epoch",
-        mode="max",
-        save_top_k=1,
-        filename="best_acc_model_{epoch:02d}_{val_acc_epoch:.4f}",
-        save_last=False
-    )
-    callbacks.append(acc_checkpoint)
+    # acc_checkpoint = ModelCheckpoint(
+    #     monitor="val_acc_epoch",
+    #     mode="max",
+    #     save_top_k=1,
+    #     filename="best_acc_model_{epoch:02d}_{val_acc_epoch:.4f}",
+    #     save_last=False
+    # )
+    # callbacks.append(acc_checkpoint)
     
     trainer = L.Trainer(
         max_epochs=config_dict["max_epochs"], 

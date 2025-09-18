@@ -8,6 +8,7 @@ import pandas as pd
 from hq_det.models.dino import hq_dino
 from trainer import post_coco_file
 from utils.dataset import COCOClassificationDataset
+from utils.hq_dino_feature_extractor import DinoFeatureExtractor
 
 def load_coco_data(path):
     with open(path, "r") as f:
@@ -77,21 +78,31 @@ def check_coco_category_counts(coco):
         result[cat_id] = (cat_name, count)
     return result
 
-def predict_coco(coco_file, model, input_path, confidence=0.3, max_size=1536):
+def predict_coco(coco_file, model_path, input_path, confidence=0.3, max_size=1536, save_feats=False, save_feats_dir=None):
     """
     预测coco文件
     Args:
         coco_file: coco文件路径
-        model: 模型
+        model_path: 模型路径
         input_path: 输入路径
         output_path: 输出路径
     """
+    model = hq_dino.HQDINO(model=model_path)
+    extractor = DinoFeatureExtractor(model, max_size=max_size)
+    model.eval()
+    model.to("cuda:0")
     coco_data = replace_coco_file(coco_file, model.id2names)
     coco_output = coco_data.copy()
-
+    if save_feats:
+        os.makedirs(save_feats_dir, exist_ok=True)
     annotation_id = 1
     for image_info in tqdm(coco_data['images']):
         img_path = os.path.join(input_path, image_info['file_name'])
+        feat_save_path = os.path.join(save_feats_dir, f"{image_info['file_name']}.npz")
+        if save_feats:
+            img_feats = extractor(img_path)
+            extractor.save_feats_to_npz(img_feats, feat_save_path)
+
         img = cv2.imread(img_path)
         height, width = img.shape[:2]
         assert height == image_info['height'] and width == image_info['width']
@@ -112,7 +123,8 @@ def predict_coco(coco_file, model, input_path, confidence=0.3, max_size=1536):
                 "score": float(scores[i]),
                 "area": float(w * h),
                 "iscrowd": 0,
-                "source": "predict"
+                "source": "predict",
+                "feat_path": feat_save_path,
             })
             annotation_id += 1
 
@@ -233,15 +245,25 @@ def merge_coco_categories(coco_data, merge_dict):
 
 
 if __name__ == "__main__":
-    model_path = sys.argv[1]
-    input_path = sys.argv[2]
-    output_path = sys.argv[3] if len(sys.argv) > 3 else None
+    import argparse
+
+    parser = argparse.ArgumentParser(description="COCO分类与特征提取脚本")
+    parser.add_argument("model_path", type=str, help="模型路径")
+    parser.add_argument("input_path", type=str, help="输入图片文件夹路径")
+    parser.add_argument("--output", type=str, default=None, help="输出文件夹路径")
+    parser.add_argument("--save_feats", action="store_true", help="是否保存特征，添加此参数则保存特征")
+    parser.add_argument("--save_feats_dir", type=str, default=None, help="特征保存路径")
+    args = parser.parse_args()
+
+    model_path = args.model_path
+    input_path = args.input_path
+    output_path = args.output
+    save_feats = args.save_feats
+    save_feats_dir = args.save_feats_dir
 
     coco_file = os.path.join(input_path, "_annotations.coco.json")
-    model = hq_dino.HQDINO(model=model_path)
-    model.eval()
-    model.to("cuda:0")
-    coco_output = predict_coco(coco_file, model, input_path, confidence=0.2, max_size=1536)
+    
+    coco_output = predict_coco(coco_file, model_path, input_path, confidence=0.2, max_size=1536, save_feats=save_feats, save_feats_dir=save_feats_dir)
     # with open("predict_coco.json", "w", encoding="utf-8") as f:
     #     json.dump(coco_output, f, ensure_ascii=False, indent=2)
     # coco_output = correct_predicted_categories(coco_output)
