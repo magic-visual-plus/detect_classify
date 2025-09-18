@@ -20,7 +20,7 @@ unfrozen_names: [ # 未冻结的骨干网络参数
             # "blocks.11.ls2.gamma",
             # "blocks.8",
             # "blocks.9",
-            "blocks.10",
+            # "blocks.10",
             "blocks.11",
             "norm.weight",
             "norm.bias"
@@ -31,6 +31,7 @@ param_groups:
     lr: 0.00001
   - regex: "head.*"       # 匹配所有head相关参数
     lr: 0.001
+dropout_p: 0.2
 
 max_epochs: 50 # 最大训练轮数
 batch_size: 64 # 批次大小
@@ -76,3 +77,5 @@ pad_color: [0,0,0]  # 常数填充的颜色 (R, G, B)
 
 # 模型配置
 backbone_weights: "/root/autodl-tmp/seat_model/dinov3/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth"
+
+with_detection_feature: True
